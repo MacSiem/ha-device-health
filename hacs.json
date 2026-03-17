@@ -1,5 +1,5 @@
 {
-  "name": "Device Health",
-  "render_readme": true,
-  "content_in_root": true
+    "name":  "Device Health",
+    "filename":  "ha-device-health.js",
+    "render_readme":  true
 }

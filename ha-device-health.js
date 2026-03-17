@@ -14,6 +14,100 @@ class HADeviceHealth extends HTMLElement {
     this._alertHistory = [];
     this._acknowledgedAlerts = new Set();
     this._lastUpdate = Date.now();
+    this._currentPage = 1;
+    this._pageSize = 15;
+    // Separate pagination for each tab
+    this._batteryPage = 1;
+    this._batteryPageSize = 15;
+    this._networkPage = 1;
+    this._networkPageSize = 15;
+    // Throttle control
+    this._renderScheduled = false;
+    this._firstRender = true;
+    this._throttleMs = 5000;
+    this._lastRenderTime = 0;
+    this._cachedStateHash = '';
+  }
+
+  static get _translations() {
+    return {
+      en: {
+        deviceHealth: "Device Health",
+        devices: "Devices",
+        batteries: "Batteries",
+        network: "Network",
+        alerts: "Alerts",
+        searchDevices: "Search devices...",
+        all: "All",
+        online: "Online",
+        offline: "Offline",
+        unavailable: "Unavailable",
+        toggleGrouping: "Toggle Grouping",
+        totalDevices: "Total Devices",
+        availability: "Availability",
+        name: "Name",
+        type: "Type",
+        status: "Status",
+        lastSeen: "Last Seen",
+        uptime: "Uptime",
+        levelWorstFirst: "Level (Worst First)",
+        batteryHealthSummary: "Battery Health Summary",
+        deviceNeedAttention: "device(s) need attention",
+        lastChanged: "Last changed",
+        networkDevices: "Devices",
+        signalStrengthDist: "Signal Strength Distribution",
+        activeAlerts: "Active Alerts",
+        noActiveAlerts: "No active alerts",
+        alertHistory: "Alert History (Last 20)",
+        dismiss: "Dismiss",
+        page: "Page",
+        of: "of",
+        itemsPerPage: "Items per page",
+        previous: "Previous",
+        next: "Next",
+      },
+      pl: {
+        deviceHealth: "Zdrowie Urządzeń",
+        devices: "Urządzenia",
+        batteries: "Baterie",
+        network: "Sieć",
+        alerts: "Alerty",
+        searchDevices: "Szukaj urządzeń...",
+        all: "Wszystkie",
+        online: "Online",
+        offline: "Offline",
+        unavailable: "Niedostępne",
+        toggleGrouping: "Przełącz Grupowanie",
+        totalDevices: "Razem Urządzeń",
+        availability: "Dostępność",
+        name: "Nazwa",
+        type: "Typ",
+        status: "Status",
+        lastSeen: "Ostatnio Widziane",
+        uptime: "Czas Pracy",
+        levelWorstFirst: "Poziom (Najgorsze Pierwsze)",
+        batteryHealthSummary: "Podsumowanie Zdrowia Baterii",
+        deviceNeedAttention: "urządzenie(ń) wymaga uwagi",
+        lastChanged: "Ostatnio zmienione",
+        networkDevices: "Urządzenia",
+        signalStrengthDist: "Rozkład Siły Sygnału (dBm)",
+        activeAlerts: "Aktywne Alerty",
+        noActiveAlerts: "Brak aktywnych alertów",
+        alertHistory: "Historia Alertów (Ostatnie 20)",
+        dismiss: "Odrzuć",
+        page: "Strona",
+        of: "z",
+        itemsPerPage: "Elementów na stronie",
+        previous: "Poprzednia",
+        next: "Następna",
+      },
+    };
+  }
+
+  _t(key) {
+    const lang = this._hass?.language || 'en';
+    const T = HADeviceHealth._translations;
+    return (T[lang] || T['en'])[key] || T['en'][key] || key;
   }
 
   setConfig(config) {
@@ -28,7 +122,27 @@ class HADeviceHealth extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this._update();
+    if (this._firstRender) {
+      this._firstRender = false;
+      this._generateAlerts();
+      this._render();
+      return;
+    }
+    // Throttle: only re-render every _throttleMs
+    const now = Date.now();
+    if (now - this._lastRenderTime < this._throttleMs) {
+      if (!this._renderScheduled) {
+        this._renderScheduled = true;
+        setTimeout(() => {
+          this._renderScheduled = false;
+          this._generateAlerts();
+          this._render();
+        }, this._throttleMs - (now - this._lastRenderTime));
+      }
+      return;
+    }
+    this._generateAlerts();
+    this._render();
   }
 
   _update() {
@@ -253,78 +367,98 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _getStatusColor(status) {
-    const colors = { online: "#4CAF50", offline: "#F44336", unavailable: "#9E9E9E" };
-    return colors[status] || "#999";
+    const colors = { online: "#10B981", offline: "#EF4444", unavailable: "#94A3B8" };
+    return colors[status] || "#94A3B8";
   }
 
   _getBatteryColor(level) {
-    if (level < 10) return "#FF1744";
-    if (level < 30) return "#FF6D00";
-    return "#4CAF50";
+    if (level < 10) return "#EF4444";
+    if (level < 30) return "#F59E0B";
+    return "#10B981";
   }
 
   _getSignalColor(rssi) {
-    if (rssi > -50) return "#4CAF50";
-    if (rssi > -70) return "#8BC34A";
-    if (rssi > -80) return "#FFC107";
-    return "#F44336";
+    if (rssi > -50) return "#10B981";
+    if (rssi > -70) return "#3B82F6";
+    if (rssi > -80) return "#F59E0B";
+    return "#EF4444";
   }
 
   _render() {
+    this._lastRenderTime = Date.now();
     const style = `
       :host {
-        --primary-color: var(--primary-color, #03a9f4);
-        --primary-text-color: var(--primary-text-color, #212121);
-        --secondary-text-color: var(--secondary-text-color, #727272);
-        --divider-color: var(--divider-color, #e0e0e0);
-        --error-color: var(--error-color, #f44336);
+        --pc: #3B82F6;
+        --ec: #EF4444;
+        --wc: #F59E0B;
+        --sc: #10B981;
+        --bg: #F8FAFC;
+        --cbg: #FFFFFF;
+        --tc: #1E293B;
+        --ts: #64748B;
+        --dc: #E2E8F0;
+        --hov: rgba(59, 130, 246, 0.04);
+        --sel: rgba(59, 130, 246, 0.08);
+        --radius: 16px;
+        --radius-sm: 10px;
+        --radius-xs: 6px;
+        --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+        --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+        --tr: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        display: block;
+        color-scheme: light !important;
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       .card {
-        background: var(--ha-card-background, white);
-        border-radius: 4px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        padding: 16px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--cbg);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 20px;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        min-height: 500px;
+        color: var(--tc);
       }
 
       .card-header {
-        font-size: 24px;
-        font-weight: 500;
+        font-size: 20px;
+        font-weight: 600;
         margin-bottom: 16px;
-        color: var(--primary-text-color);
+        color: var(--tc);
       }
 
       .tabs {
         display: flex;
-        gap: 8px;
-        border-bottom: 2px solid var(--divider-color);
+        gap: 4px;
+        border-bottom: 2px solid var(--dc);
         margin-bottom: 16px;
       }
 
       .tab {
-        padding: 12px 16px;
+        padding: 10px 16px;
         cursor: pointer;
-        color: var(--secondary-text-color);
+        color: var(--ts);
         border: none;
         background: none;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 500;
-        border-bottom: 3px solid transparent;
-        transition: all 0.3s;
+        font-family: inherit;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: var(--tr);
       }
 
       .tab.active {
-        color: var(--primary-color);
-        border-bottom-color: var(--primary-color);
+        color: var(--pc) !important;
+        background: var(--cbg) !important;
+        border-bottom-color: var(--pc);
       }
 
       .tab:hover {
-        color: var(--primary-text-color);
+        color: var(--tc);
+        background: var(--hov);
+        border-radius: var(--radius-xs) var(--radius-xs) 0 0;
       }
 
       .tab-content {
@@ -337,9 +471,10 @@ class HADeviceHealth extends HTMLElement {
 
       .controls {
         display: flex;
-        gap: 12px;
-        margin-bottom: 16px;
+        gap: 10px;
+        margin-bottom: 14px;
         flex-wrap: wrap;
+        align-items: center;
       }
 
       .control-group {
@@ -349,228 +484,244 @@ class HADeviceHealth extends HTMLElement {
       }
 
       input[type="text"], select {
-        padding: 8px 12px;
-        border: 1px solid var(--divider-color);
-        border-radius: 4px;
-        font-size: 14px;
-        background: var(--ha-card-background, white);
-        color: var(--primary-text-color);
+        padding: 7px 12px;
+        border: 1.5px solid var(--dc);
+        border-radius: var(--radius-xs);
+        font-size: 13px;
+        font-family: inherit;
+        background: var(--cbg);
+        color: var(--tc);
+        transition: var(--tr);
+        outline: none;
+      }
+
+      input[type="text"]:focus, select:focus {
+        border-color: var(--pc);
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
       }
 
       input[type="text"]::placeholder {
-        color: var(--secondary-text-color);
+        color: var(--ts);
       }
 
       button {
-        padding: 8px 12px;
-        border: 1px solid var(--divider-color);
-        background: var(--ha-card-background, white);
-        color: var(--primary-text-color);
-        border-radius: 4px;
+        padding: 7px 14px;
+        border: 1.5px solid var(--dc);
+        background: var(--cbg);
+        color: var(--tc);
+        border-radius: var(--radius-xs);
         cursor: pointer;
-        font-size: 14px;
-        transition: all 0.2s;
+        font-size: 13px;
+        font-family: inherit;
+        font-weight: 500;
+        transition: var(--tr);
       }
 
       button:hover {
-        background: var(--divider-color);
+        background: var(--hov);
+        border-color: var(--pc);
       }
 
       button.active {
-        background: var(--primary-color);
+        background: var(--pc);
         color: white;
-        border-color: var(--primary-color);
+        border-color: var(--pc);
       }
 
       .status-badge {
         display: inline-block;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 11px;
         font-weight: 600;
         color: white;
+        letter-spacing: 0.3px;
       }
 
-      .status-online {
-        background: #4CAF50;
-      }
-
-      .status-offline {
-        background: #F44336;
-      }
-
-      .status-unavailable {
-        background: #9E9E9E;
-      }
+      .status-online { background: var(--sc); }
+      .status-offline { background: var(--ec); }
+      .status-unavailable { background: #94A3B8; }
 
       .device-table {
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 16px;
+        margin-bottom: 0;
       }
 
       .device-table th {
         text-align: left;
-        padding: 12px;
-        border-bottom: 2px solid var(--divider-color);
+        padding: 10px 12px;
+        border-bottom: 2px solid var(--dc);
         font-weight: 600;
-        color: var(--primary-text-color);
-        background: var(--divider-color);
+        font-size: 12px;
+        color: var(--ts);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: var(--bg);
         cursor: pointer;
         user-select: none;
       }
 
       .device-table th:hover {
-        background: #e0e0e0;
+        background: var(--dc);
       }
 
       .device-table td {
-        padding: 12px;
-        border-bottom: 1px solid var(--divider-color);
-        color: var(--primary-text-color);
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--dc);
+        color: var(--tc);
+        font-size: 13px;
       }
 
-      .device-table tr:hover {
-        background: var(--divider-color);
+      .device-table tr:hover td {
+        background: var(--hov);
       }
 
       .stats {
-        padding: 12px;
-        background: var(--divider-color);
-        border-radius: 4px;
-        margin-bottom: 16px;
-        font-size: 14px;
+        padding: 10px 14px;
+        background: var(--bg);
+        border: 1px solid var(--dc);
+        border-radius: var(--radius-xs);
+        margin-bottom: 14px;
+        font-size: 13px;
+        color: var(--ts);
+        font-weight: 500;
       }
 
       .battery-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 16px;
-        margin-bottom: 16px;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 0;
       }
 
       .battery-card {
-        border: 1px solid var(--divider-color);
-        border-radius: 8px;
-        padding: 12px;
+        border: 1.5px solid var(--dc);
+        border-radius: var(--radius-sm);
+        padding: 14px;
         text-align: center;
-        transition: all 0.2s;
+        transition: var(--tr);
+        background: var(--cbg);
       }
 
       .battery-card:hover {
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        box-shadow: var(--shadow-md);
+        border-color: var(--pc);
       }
 
       .battery-bar {
         width: 100%;
-        height: 20px;
-        background: var(--divider-color);
-        border-radius: 10px;
+        height: 8px;
+        background: var(--dc);
+        border-radius: 4px;
         overflow: hidden;
         margin: 8px 0;
       }
 
       .battery-fill {
         height: 100%;
-        transition: all 0.3s;
+        border-radius: 4px;
+        transition: var(--tr);
       }
 
       .battery-label {
-        font-size: 12px;
-        color: var(--secondary-text-color);
-        margin-top: 8px;
+        font-size: 11px;
+        color: var(--ts);
+        margin-top: 6px;
       }
 
       .network-stats {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 12px;
         margin-bottom: 16px;
       }
 
       .network-stat {
-        border: 1px solid var(--divider-color);
-        border-radius: 4px;
-        padding: 12px;
+        border: 1.5px solid var(--dc);
+        border-radius: var(--radius-sm);
+        padding: 14px;
         text-align: center;
+        background: var(--cbg);
+        transition: var(--tr);
+      }
+
+      .network-stat:hover {
+        border-color: var(--pc);
+        box-shadow: var(--shadow);
       }
 
       .network-stat-value {
         font-size: 24px;
-        font-weight: bold;
-        color: var(--primary-color);
+        font-weight: 700;
+        color: var(--pc);
       }
 
       .network-stat-label {
         font-size: 12px;
-        color: var(--secondary-text-color);
+        color: var(--ts);
         margin-top: 4px;
       }
 
       .rssi-bar {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin: 8px 0;
-        padding: 8px;
-        background: var(--divider-color);
-        border-radius: 4px;
+        gap: 10px;
+        margin: 6px 0;
+        padding: 8px 12px;
+        background: var(--bg);
+        border: 1px solid var(--dc);
+        border-radius: var(--radius-xs);
       }
 
       .rssi-value {
-        min-width: 50px;
+        min-width: 60px;
         font-weight: 600;
+        font-size: 13px;
       }
 
       .rssi-indicator {
-        width: 100%;
-        height: 8px;
-        background: var(--divider-color);
-        border-radius: 4px;
+        flex: 1;
+        height: 6px;
+        background: var(--dc);
+        border-radius: 3px;
         overflow: hidden;
       }
 
       .rssi-fill {
         height: 100%;
-        transition: all 0.3s;
+        border-radius: 3px;
+        transition: var(--tr);
       }
 
       .alert-item {
-        padding: 12px;
+        padding: 12px 14px;
         border-left: 4px solid;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         margin-bottom: 8px;
-        background: var(--divider-color);
+        background: var(--bg);
         display: flex;
         justify-content: space-between;
         align-items: center;
       }
 
-      .alert-critical {
-        border-color: #F44336;
-      }
+      .alert-critical { border-color: var(--ec); }
+      .alert-warning { border-color: var(--wc); }
+      .alert-info { border-color: var(--pc); }
 
-      .alert-warning {
-        border-color: #FFC107;
-      }
-
-      .alert-info {
-        border-color: #2196F3;
-      }
-
-      .alert-text {
-        flex: 1;
-      }
+      .alert-text { flex: 1; }
 
       .alert-type {
         font-weight: 600;
-        font-size: 12px;
+        font-size: 11px;
         margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
       }
 
       .alert-time {
-        font-size: 12px;
-        color: var(--secondary-text-color);
+        font-size: 11px;
+        color: var(--ts);
       }
 
       .alert-actions {
@@ -579,332 +730,102 @@ class HADeviceHealth extends HTMLElement {
       }
 
       .alert-dismiss {
-        padding: 4px 8px;
+        padding: 4px 10px;
         font-size: 12px;
-        background: var(--error-color);
+        background: var(--ec);
         color: white;
         border: none;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         cursor: pointer;
+        font-family: inherit;
+        font-weight: 500;
+        transition: var(--tr);
       }
 
       .alert-dismiss:hover {
-        opacity: 0.8;
+        opacity: 0.85;
       }
 
       canvas {
         width: 100%;
-        height: 300px;
-        border: 1px solid var(--divider-color);
-        border-radius: 4px;
+        height: 250px;
+        border: 1px solid var(--dc);
+        border-radius: var(--radius-xs);
         margin-bottom: 16px;
       }
 
       .empty-state {
         text-align: center;
         padding: 40px 16px;
-        color: var(--secondary-text-color);
+        color: var(--ts);
+        font-size: 14px;
       }
 
-      .health-score {
-        font-size: 48px;
-        font-weight: bold;
-        color: var(--primary-color);
+      .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+        padding: 14px 0 0;
+        border-top: 1px solid var(--dc);
+      }
+
+      .pagination-btn {
+        padding: 6px 14px;
+        border: 1.5px solid var(--dc);
+        background: var(--cbg);
+        color: var(--tc);
+        border-radius: var(--radius-xs);
+        cursor: pointer;
+        font-size: 13px;
+        font-family: inherit;
+        font-weight: 500;
+        transition: var(--tr);
+      }
+
+      .pagination-btn:hover:not(:disabled) {
+        background: var(--pc);
+        color: white;
+        border-color: var(--pc);
+      }
+
+      .pagination-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .pagination-info {
+        font-size: 13px;
+        color: var(--ts);
+        min-width: 100px;
         text-align: center;
-        margin: 20px 0;
+        font-weight: 500;
       }
-    
-/* === Modern Bento Light Mode === */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      .page-size-selector {
+        padding: 7px 12px;
+        border: 1.5px solid var(--dc);
+        border-radius: var(--radius-xs);
+        font-size: 13px;
+        font-family: inherit;
+        background: var(--cbg);
+        color: var(--tc);
+        cursor: pointer;
+        transition: var(--tr);
+      }
 
-:host {
-  --bento-bg: #F8FAFC;
-  --bento-card: #FFFFFF;
-  --bento-primary: #3B82F6;
-  --bento-primary-hover: #2563EB;
-  --bento-text: #1E293B;
-  --bento-text-secondary: #64748B;
-  --bento-border: #E2E8F0;
-  --bento-success: #10B981;
-  --bento-warning: #F59E0B;
-  --bento-error: #EF4444;
-  --bento-radius: 16px;
-  --bento-radius-sm: 10px;
-  --bento-radius-xs: 6px;
-  --bento-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
-  --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.06);
-  --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: block;
-  color-scheme: light !important;
-}
-* { box-sizing: border-box; }
+      .page-size-selector:hover {
+        border-color: var(--pc);
+      }
 
-.card, .card-container, .reports-card, .export-card {
-  background: var(--bento-card); border-radius: var(--bento-radius); box-shadow: var(--bento-shadow);
-  padding: 28px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: var(--bento-text); border: 1px solid var(--bento-border); animation: fadeSlideIn 0.4s ease-out;
-}
-.card-header { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: var(--bento-text); letter-spacing: -0.01em; display: flex; justify-content: space-between; align-items: center; }
-.card-header h2 { font-size: 20px; font-weight: 700; color: var(--bento-text); margin: 0; letter-spacing: -0.01em; }
-.card-title, .title, .header-title, .pan-title { font-size: 20px; font-weight: 700; color: var(--bento-text); letter-spacing: -0.01em; }
-.header, .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--bento-border); margin-bottom: 24px; overflow-x: auto; padding-bottom: 0; }
-.tab, .tab-btn, .tab-button { padding: 10px 20px; border: none; background: transparent; color: var(--bento-text-secondary); cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent; transition: var(--bento-transition); white-space: nowrap; margin-bottom: -2px; border-radius: 8px 8px 0 0; font-family: 'Inter', sans-serif; }
-.tab.active, .tab-btn.active, .tab-button.active { color: var(--bento-primary); border-bottom-color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.tab:hover, .tab-btn:hover, .tab-button:hover { color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.tab-icon { margin-right: 6px; }
-.tab-content { display: none; }
-.tab-content.active { display: block; animation: fadeSlideIn 0.3s ease-out; }
-
-button, .btn, .btn-s { padding: 9px 16px; border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); border-radius: var(--bento-radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; font-family: 'Inter', sans-serif; transition: var(--bento-transition); }
-button:hover, .btn:hover, .btn-s:hover { background: var(--bento-bg); border-color: var(--bento-primary); color: var(--bento-primary); }
-button.active, .btn.active, .btn-act { background: var(--bento-primary); color: white; border-color: var(--bento-primary); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
-.btn-primary { padding: 9px 16px; background: var(--bento-primary); color: white; border: 1.5px solid var(--bento-primary); border-radius: var(--bento-radius-sm); cursor: pointer; font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif; transition: var(--bento-transition); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
-.btn-primary:hover { background: var(--bento-primary-hover); border-color: var(--bento-primary-hover); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35); transform: translateY(-1px); }
-.btn-secondary { padding: 9px 16px; background: var(--bento-card); color: var(--bento-text); border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; font-family: 'Inter', sans-serif; transition: var(--bento-transition); }
-.btn-secondary:hover { border-color: var(--bento-primary); color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.btn-danger { padding: 9px 16px; background: var(--bento-card); color: var(--bento-error); border: 1.5px solid var(--bento-error); border-radius: var(--bento-radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; font-family: 'Inter', sans-serif; transition: var(--bento-transition); }
-.btn-danger:hover { background: var(--bento-error); color: white; }
-.btn-small { padding: 5px 12px; font-size: 12px; border: 1px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text-secondary); border-radius: var(--bento-radius-xs); cursor: pointer; font-weight: 500; font-family: 'Inter', sans-serif; transition: var(--bento-transition); }
-.btn-small:hover { border-color: var(--bento-primary); color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-
-input[type="text"], input[type="number"], input[type="date"], input[type="time"], input[type="email"], input[type="search"], select, textarea, .search-input, .sinput, .sinput-sm, .alert-search-box, .period-select { padding: 9px 14px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-sm); font-size: 13px; background: var(--bento-card); color: var(--bento-text); font-family: 'Inter', sans-serif; transition: var(--bento-transition); outline: none; }
-input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus, input[type="time"]:focus, select:focus, textarea:focus, .search-input:focus, .sinput:focus, .sinput-sm:focus, .alert-search-box:focus, .period-select:focus { border-color: var(--bento-primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-input::placeholder, .search-input::placeholder, .sinput::placeholder, .sinput-sm::placeholder { color: var(--bento-text-secondary); opacity: 0.7; }
-.form-group { margin-bottom: 16px; }
-.form-group.full { grid-column: 1 / -1; }
-.form-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-label, .cg label, .clbl { display: block; font-size: 12px; font-weight: 600; color: var(--bento-text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.03em; }
-.add-form { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 20px; margin-bottom: 20px; }
-textarea { min-height: 80px; resize: vertical; }
-
-.stats, .stats-grid, .stats-container, .summary-grid, .network-stats, .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.stat, .stat-card, .summary-card, .network-stat, .metric-card, .kpi-card { background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 16px; border: 1px solid var(--bento-border); transition: var(--bento-transition); text-align: center; }
-.stat:hover, .stat-card:hover, .summary-card:hover, .network-stat:hover, .metric-card:hover { border-color: var(--bento-primary); box-shadow: var(--bento-shadow-md); transform: translateY(-1px); }
-.stat-card.online { border-left: 3px solid var(--bento-success); }
-.stat-card.offline { border-left: 3px solid var(--bento-error); }
-.sv, .stat-value, .summary-value, .network-stat-value, .metric-value { font-size: 24px; font-weight: 700; color: var(--bento-primary); line-height: 1.2; }
-.stat.ok .sv { color: var(--bento-success); }
-.stat.err .sv { color: var(--bento-error); }
-.sl, .stat-label, .summary-label, .network-stat-label, .metric-label { font-size: 12px; color: var(--bento-text-secondary); font-weight: 500; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
-.stat-trend { font-size: 12px; font-weight: 600; margin-top: 4px; }
-.stat-trend.positive, .trend-up { color: var(--bento-success); }
-.stat-trend.negative, .trend-down { color: var(--bento-error); }
-
-.device-table, .entity-table, .table, .alert-table, .data-table, .backup-table, .history-table, .log-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 16px; }
-.device-table th, .entity-table th, .table th, .alert-table th, .data-table th, .backup-table th, table th { text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--bento-border); font-weight: 600; color: var(--bento-text-secondary); background: var(--bento-bg); cursor: pointer; user-select: none; white-space: nowrap; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; transition: var(--bento-transition); font-family: 'Inter', sans-serif; }
-.device-table th:first-child, .entity-table th:first-child, .table th:first-child, table th:first-child { border-radius: var(--bento-radius-xs) 0 0 0; }
-.device-table th:last-child, .entity-table th:last-child, .table th:last-child, table th:last-child { border-radius: 0 var(--bento-radius-xs) 0 0; }
-.device-table th:hover, .entity-table th:hover, .table th:hover, table th:hover { background: rgba(59, 130, 246, 0.06); color: var(--bento-primary); }
-.device-table th.sorted, .entity-table th.sorted, .table th.sorted, table th.sorted { background: rgba(59, 130, 246, 0.08); color: var(--bento-primary); }
-.device-table td, .entity-table td, .table td, .alert-table td, .data-table td, .backup-table td, table td { padding: 12px 16px; border-bottom: 1px solid var(--bento-border); color: var(--bento-text); font-size: 13px; font-family: 'Inter', sans-serif; }
-.device-table tr:hover, .entity-table tr:hover, .table tbody tr:hover, .alert-table tr:hover, table tr:hover { background: rgba(59, 130, 246, 0.03); }
-.table-container { overflow-x: auto; border-radius: var(--bento-radius-sm); border: 1px solid var(--bento-border); }
-.sort-indicator { font-size: 10px; margin-left: 4px; color: var(--bento-primary); }
-
-.status-badge, .severity-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
-.status-online, .status-home, .status-active, .status-ok, .status-healthy, .status-running, .status-complete, .status-completed, .status-success, .badge-success { background: rgba(16, 185, 129, 0.1); color: #059669; }
-.status-offline, .status-error, .status-failed, .status-critical, .severity-critical, .badge-error, .badge-danger { background: rgba(239, 68, 68, 0.1); color: #DC2626; }
-.status-away, .status-warning, .severity-warning, .badge-warning { background: rgba(245, 158, 11, 0.1); color: #B45309; }
-.status-unavailable, .status-unknown, .status-idle, .status-inactive, .status-stopped, .badge-neutral { background: rgba(100, 116, 139, 0.1); color: var(--bento-text-secondary); }
-.status-zone, .severity-info, .badge-info { background: rgba(59, 130, 246, 0.1); color: var(--bento-primary); }
-
-.alert-item { padding: 14px 18px; border-left: 4px solid var(--bento-border); border-radius: 0 var(--bento-radius-sm) var(--bento-radius-sm) 0; margin-bottom: 10px; background: var(--bento-bg); display: flex; justify-content: space-between; align-items: center; transition: var(--bento-transition); }
-.alert-item:hover { box-shadow: var(--bento-shadow); }
-.alert-critical { border-color: var(--bento-error); background: rgba(239, 68, 68, 0.04); }
-.alert-warning { border-color: var(--bento-warning); background: rgba(245, 158, 11, 0.04); }
-.alert-info { border-color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.alert-text { flex: 1; }
-.alert-type { font-weight: 600; font-size: 13px; margin-bottom: 4px; color: var(--bento-text); }
-.alert-time { font-size: 12px; color: var(--bento-text-secondary); }
-.alert-actions { display: flex; gap: 8px; }
-.alert-dismiss { padding: 6px 12px; font-size: 12px; background: var(--bento-card); color: var(--bento-text-secondary); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); cursor: pointer; font-weight: 500; transition: var(--bento-transition); }
-.alert-dismiss:hover { background: var(--bento-error); color: white; border-color: var(--bento-error); }
-
-.section { margin-bottom: 24px; }
-.section h3, .section-title, .pan-head { font-size: 16px; font-weight: 600; color: var(--bento-text); margin-bottom: 12px; letter-spacing: -0.01em; }
-
-.battery-grid, .grid, .items-grid, .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.battery-card, .item-card, .chore-card, .entry-card, .backup-card { background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 16px; border: 1px solid var(--bento-border); transition: var(--bento-transition); }
-.battery-card:hover, .item-card:hover, .chore-card:hover, .entry-card:hover, .backup-card:hover { box-shadow: var(--bento-shadow-md); border-color: var(--bento-primary); transform: translateY(-1px); }
-.chore-card.priority-high { border-left: 3px solid var(--bento-error); }
-.chore-card.priority-medium { border-left: 3px solid var(--bento-warning); }
-.chore-card.priority-low { border-left: 3px solid var(--bento-success); }
-.chore-title, .entry-title, .item-title { font-weight: 600; font-size: 14px; color: var(--bento-text); margin-bottom: 6px; }
-.chore-meta, .entry-meta, .item-meta { font-size: 12px; color: var(--bento-text-secondary); }
-.chore-assignee { font-size: 12px; color: var(--bento-primary); font-weight: 500; }
-.chore-actions, .item-actions, .entry-actions { display: flex; gap: 6px; margin-top: 10px; }
-
-.battery-bar, .progress-bar, .bandwidth-bar-bg { width: 100%; height: 8px; background: var(--bento-border); border-radius: 4px; overflow: hidden; margin-top: 8px; }
-.battery-fill, .progress-fill, .bandwidth-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); background: var(--bento-success); }
-.battery-fill.battery_critical { background: var(--bento-error) !important; }
-.battery-fill.battery_warning { background: var(--bento-warning) !important; }
-.battery-label, .bandwidth-label { font-size: 13px; color: var(--bento-text); font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
-
-.pagination, .pag { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 20px; padding: 16px 0; border-top: 1px solid var(--bento-border); }
-.pagination-btn, .pag-btn { padding: 8px 14px; border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); border-radius: var(--bento-radius-xs); cursor: pointer; font-size: 13px; font-weight: 500; font-family: 'Inter', sans-serif; transition: var(--bento-transition); }
-.pagination-btn:hover:not(:disabled), .pag-btn:hover:not(:disabled) { background: var(--bento-primary); color: white; border-color: var(--bento-primary); }
-.pagination-btn:disabled, .pag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.pagination-info, .pag-info { font-size: 13px; color: var(--bento-text-secondary); font-weight: 500; padding: 0 8px; }
-.page-size-selector, .pag-size { padding: 6px 10px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-card); color: var(--bento-text); font-size: 13px; cursor: pointer; font-family: 'Inter', sans-serif; }
-
-.col-main { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--bento-text); }
-.topbar-r { display: flex; gap: 8px; align-items: center; }
-.panels { display: flex; gap: 12px; }
-.pan-left, .pan-center, .pan-right { background: var(--bento-card); border-radius: var(--bento-radius-sm); border: 1px solid var(--bento-border); overflow: hidden; }
-.cbar { display: flex; gap: 8px; align-items: center; padding: 12px; background: var(--bento-bg); border-bottom: 1px solid var(--bento-border); }
-.cg { display: flex; gap: 8px; align-items: center; }
-.cg-r { margin-left: auto; }
-
-.dd { position: relative; }
-.dd-menu { position: absolute; top: 100%; left: 0; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); box-shadow: var(--bento-shadow-md); min-width: 180px; z-index: 100; display: none; overflow: hidden; }
-.dd.open .dd-menu { display: block; }
-.dd-i { padding: 10px 16px; cursor: pointer; font-size: 13px; color: var(--bento-text); transition: var(--bento-transition); font-family: 'Inter', sans-serif; }
-.dd-i:hover { background: rgba(59, 130, 246, 0.06); color: var(--bento-primary); }
-.dd-div { border-top: 1px solid var(--bento-border); margin: 4px 0; }
-
-.auto-item, .tr-item, .list-item, .automation-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--bento-border); display: flex; align-items: center; gap: 10px; transition: var(--bento-transition); font-family: 'Inter', sans-serif; }
-.auto-item:hover, .tr-item:hover, .list-item:hover, .automation-item:hover { background: rgba(59, 130, 246, 0.04); }
-.auto-item.sel, .tr-item.sel, .list-item.selected, .automation-item.selected { background: rgba(59, 130, 246, 0.08); border-left: 3px solid var(--bento-primary); }
-.auto-item.error-item, .automation-item.error-item { border-left: 3px solid var(--bento-error); }
-.auto-name { font-weight: 500; font-size: 13px; color: var(--bento-text); }
-.auto-meta { font-size: 12px; color: var(--bento-text-secondary); }
-.auto-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bento-text-secondary); }
-.auto-dot.s-running { background: var(--bento-success); }
-.auto-dot.s-stopped { background: var(--bento-text-secondary); }
-.auto-dot.s-error { background: var(--bento-error); }
-.auto-count { font-size: 11px; color: var(--bento-text-secondary); margin-left: auto; }
-
-.tgroup { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); margin-bottom: 8px; overflow: hidden; }
-.tgroup-h { padding: 10px 14px; background: var(--bento-bg); display: flex; align-items: center; gap: 8px; cursor: pointer; transition: var(--bento-transition); font-family: 'Inter', sans-serif; }
-.tgroup-h:hover { background: rgba(59, 130, 246, 0.06); }
-.tg-tog { transition: transform 0.2s; font-size: 12px; color: var(--bento-text-secondary); }
-.tgroup.collapsed .tg-tog { transform: rotate(-90deg); }
-.tgroup.collapsed .tgroup-items { display: none; }
-.tg-name { font-weight: 600; font-size: 13px; color: var(--bento-text); }
-.tg-cnt { font-size: 11px; color: var(--bento-text-secondary); margin-left: auto; background: var(--bento-border); padding: 2px 8px; border-radius: 10px; }
-
-.device-detail, .detail-panel, .details { background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 16px; border: 1px solid var(--bento-border); }
-.detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--bento-border); font-size: 13px; }
-.detail-row:last-child { border-bottom: none; }
-.detail-label { color: var(--bento-text-secondary); font-weight: 500; }
-.detail-value { color: var(--bento-text); font-weight: 600; }
-
-.board { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 8px; }
-.column { min-width: 260px; background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 12px; border: 1px solid var(--bento-border); }
-.column-header { font-weight: 600; font-size: 14px; color: var(--bento-text); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
-.column-count { background: var(--bento-border); color: var(--bento-text-secondary); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
-
-.schedule, .calendar { margin-top: 16px; }
-.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 16px; }
-.week-header { padding: 8px; text-align: center; font-size: 12px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: 0.03em; border-radius: var(--bento-radius-xs); }
-.week-cell { padding: 8px; text-align: center; font-size: 12px; background: var(--bento-bg); border: 1px solid var(--bento-border); cursor: pointer; transition: var(--bento-transition); border-radius: var(--bento-radius-xs); }
-.week-cell:hover { border-color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.chore-item { padding: 8px 12px; border-bottom: 1px solid var(--bento-border); font-size: 13px; }
-
-.leaderboard { background: var(--bento-bg); border-radius: var(--bento-radius-sm); border: 1px solid var(--bento-border); overflow: hidden; }
-.leaderboard-row { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--bento-border); gap: 12px; font-size: 13px; transition: var(--bento-transition); }
-.leaderboard-row:last-child { border-bottom: none; }
-.leaderboard-row:hover { background: rgba(59, 130, 246, 0.04); }
-.rank { font-weight: 700; color: var(--bento-primary); font-size: 14px; min-width: 28px; }
-.name { font-weight: 500; color: var(--bento-text); flex: 1; }
-.streak { color: var(--bento-warning); font-weight: 600; }
-.completion { color: var(--bento-success); font-weight: 600; }
-
-.baby-selector { display: flex; gap: 8px; margin-bottom: 16px; }
-.quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
-.quick-btn, .action-btn { padding: 10px 16px; border: 1.5px solid var(--bento-border); background: var(--bento-card); border-radius: var(--bento-radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; font-family: 'Inter', sans-serif; transition: var(--bento-transition); display: flex; align-items: center; gap: 6px; color: var(--bento-text); }
-.quick-btn:hover, .action-btn:hover { border-color: var(--bento-primary); color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.quick-btn.active, .action-btn.active { background: var(--bento-primary); color: white; border-color: var(--bento-primary); }
-.timeline { position: relative; padding-left: 24px; }
-.timeline-item { padding: 12px 0; border-bottom: 1px solid var(--bento-border); position: relative; }
-.timeline-time { font-size: 12px; color: var(--bento-text-secondary); font-weight: 500; }
-.timeline-content { font-size: 13px; color: var(--bento-text); margin-top: 4px; }
-
-canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); margin-bottom: 16px; }
-.canvas-container { position: relative; margin-bottom: 16px; }
-.chart-container { background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 16px; border: 1px solid var(--bento-border); margin-bottom: 16px; }
-
-.empty, .empty-state { text-align: center; padding: 48px 24px; color: var(--bento-text-secondary); font-size: 14px; font-family: 'Inter', sans-serif; }
-.empty-ico, .empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
-.spinner { width: 32px; height: 32px; border: 3px solid var(--bento-border); border-top: 3px solid var(--bento-primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 24px auto; }
-
-.search-box, .search-bar, .controls, .ctrls, .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
-.control-group { display: flex; gap: 8px; align-items: center; }
-
-.domain-group-header { margin-top: 20px; padding: 10px 16px; background: var(--bento-bg); border-radius: var(--bento-radius-xs); font-weight: 600; font-size: 14px; color: var(--bento-text); border: 1px solid var(--bento-border); }
-.domain-group-header:first-child { margin-top: 0; }
-.domain-group-count { font-weight: 500; color: var(--bento-text-secondary); font-size: 12px; margin-left: 8px; }
-
-.automation-list, .list, .item-list { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); overflow: hidden; }
-.automation-name, .entity-name { font-weight: 500; font-size: 13px; color: var(--bento-text); }
-.automation-id, .entity-id { font-size: 11px; color: var(--bento-text-secondary); }
-.error-badge, .count-badge { background: var(--bento-error); color: white; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 6px; }
-.tab .error-badge { background: var(--bento-error); color: white; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 6px; }
-
-.health-score, .score { font-size: 48px; font-weight: 700; color: var(--bento-primary); text-align: center; margin: 16px 0; }
-.emoji { font-size: 20px; line-height: 1; }
-.device-icon { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.08); border-radius: var(--bento-radius-xs); font-size: 16px; }
-
-.recommendation-card, .tip-card, .suggestion-card { background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 16px; border: 1px solid var(--bento-border); margin-bottom: 12px; transition: var(--bento-transition); }
-.recommendation-card:hover, .tip-card:hover, .suggestion-card:hover { border-color: var(--bento-primary); box-shadow: var(--bento-shadow-md); }
-
-.export-options, .options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.export-option, .option-card { background: var(--bento-bg); border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; cursor: pointer; transition: var(--bento-transition); text-align: center; }
-.export-option:hover, .option-card:hover { border-color: var(--bento-primary); background: rgba(59, 130, 246, 0.04); }
-.export-option.selected, .option-card.selected { border-color: var(--bento-primary); background: rgba(59, 130, 246, 0.08); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-
-.storage-bar, .usage-bar { width: 100%; height: 24px; background: var(--bento-border); border-radius: var(--bento-radius-xs); overflow: hidden; margin-bottom: 12px; }
-.storage-fill, .usage-fill { height: 100%; border-radius: var(--bento-radius-xs); transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); background: var(--bento-primary); }
-
-.check-item, .security-item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--bento-border); transition: var(--bento-transition); }
-.check-item:hover, .security-item:hover { background: rgba(59, 130, 246, 0.03); }
-.check-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; }
-.check-icon.pass { background: rgba(16, 185, 129, 0.1); }
-.check-icon.fail { background: rgba(239, 68, 68, 0.1); }
-.check-icon.warn { background: rgba(245, 158, 11, 0.1); }
-.check-text, .security-text { flex: 1; }
-.check-title { font-weight: 600; font-size: 13px; color: var(--bento-text); }
-.check-desc { font-size: 12px; color: var(--bento-text-secondary); margin-top: 2px; }
-
-.waveform { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; margin-bottom: 16px; }
-.analysis-result, .result-card { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 20px; text-align: center; margin-bottom: 16px; }
-.confidence-bar { height: 8px; background: var(--bento-border); border-radius: 4px; overflow: hidden; margin-top: 8px; }
-.confidence-fill { height: 100%; border-radius: 4px; background: var(--bento-primary); transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-
-.sentence-item, .intent-item { padding: 12px 16px; border-bottom: 1px solid var(--bento-border); display: flex; justify-content: space-between; align-items: center; transition: var(--bento-transition); }
-.sentence-item:hover, .intent-item:hover { background: rgba(59, 130, 246, 0.03); }
-.sentence-text { font-size: 13px; color: var(--bento-text); font-family: 'Inter', sans-serif; }
-.intent-badge { display: inline-flex; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: var(--bento-primary); }
-
-.backup-item, .backup-entry { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--bento-border); transition: var(--bento-transition); }
-.backup-item:hover, .backup-entry:hover { background: rgba(59, 130, 246, 0.03); }
-.backup-name { font-weight: 500; font-size: 14px; color: var(--bento-text); }
-.backup-date, .backup-size { font-size: 12px; color: var(--bento-text-secondary); }
-
-.report-section { background: var(--bento-bg); border-radius: var(--bento-radius-sm); padding: 20px; border: 1px solid var(--bento-border); margin-bottom: 16px; }
-.insight-card { padding: 14px; border-left: 3px solid var(--bento-primary); background: rgba(59, 130, 246, 0.04); border-radius: 0 var(--bento-radius-xs) var(--bento-radius-xs) 0; margin-bottom: 10px; }
-
-@keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bento-border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--bento-text-secondary); }
-
-@media (max-width: 768px) {
-  .card, .card-container, .reports-card, .export-card { padding: 16px; }
-  .stats, .stats-grid, .summary-grid { grid-template-columns: repeat(2, 1fr); }
-  .panels { flex-direction: column; }
-  .board { flex-direction: column; }
-  .column { min-width: unset; }
-}
-
-`;
+      .section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--tc);
+        margin: 20px 0 10px;
+      }
+    `;
 
     const devices = this._getDevices();
     const batteries = this._getBatteryDevices();
@@ -918,48 +839,67 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
       <div class="card">
         <div class="card-header">${this._config.title}</div>
         <div class="tabs">
-          <button class="tab ${this._activeTab === "devices" ? "active" : ""}" data-tab="devices">Devices</button>
-          <button class="tab ${this._activeTab === "batteries" ? "active" : ""}" data-tab="batteries">Batteries</button>
-          <button class="tab ${this._activeTab === "network" ? "active" : ""}" data-tab="network">Network</button>
-          <button class="tab ${this._activeTab === "alerts" ? "active" : ""}" data-tab="alerts">Alerts</button>
+          <button class="tab ${this._activeTab === "devices" ? "active" : ""}" data-tab="devices">${this._t('devices')}</button>
+          <button class="tab ${this._activeTab === "batteries" ? "active" : ""}" data-tab="batteries">${this._t('batteries')}</button>
+          <button class="tab ${this._activeTab === "network" ? "active" : ""}" data-tab="network">${this._t('network')}</button>
+          <button class="tab ${this._activeTab === "alerts" ? "active" : ""}" data-tab="alerts">${this._t('alerts')}</button>
         </div>
     `;
 
     // Devices Tab
+    const filteredDevices = devices.filter(
+      (d) => (this._deviceFilter === "all" || d.status === this._deviceFilter) &&
+              d.name.toLowerCase().includes(this._searchQuery.toLowerCase())
+    );
+
+    // Reset to page 1 when search/filter changes
+    const totalPages = Math.ceil(filteredDevices.length / this._pageSize) || 1;
+    if (this._currentPage > totalPages) {
+      this._currentPage = 1;
+    }
+
+    const startIdx = (this._currentPage - 1) * this._pageSize;
+    const endIdx = startIdx + this._pageSize;
+    const paginatedDevices = filteredDevices.slice(startIdx, endIdx);
+
     html += `
       <div class="tab-content ${this._activeTab === "devices" ? "active" : ""}">
         <div class="controls">
           <div class="control-group">
-            <input type="text" class="search-box" placeholder="Search devices..." value="${this._searchQuery}">
+            <input type="text" class="search-box" placeholder="${this._t('searchDevices')}" value="${this._searchQuery}">
           </div>
           <div class="control-group">
             <select class="filter-status">
-              <option value="all">All</option>
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-              <option value="unavailable">Unavailable</option>
+              <option value="all" ${this._deviceFilter === 'all' ? 'selected' : ''}>${this._t('all')}</option>
+              <option value="online" ${this._deviceFilter === 'online' ? 'selected' : ''}>${this._t('online')}</option>
+              <option value="offline" ${this._deviceFilter === 'offline' ? 'selected' : ''}>${this._t('offline')}</option>
+              <option value="unavailable" ${this._deviceFilter === 'unavailable' ? 'selected' : ''}>${this._t('unavailable')}</option>
             </select>
           </div>
           <div class="control-group">
-            <button class="toggle-grouping">Toggle Grouping</button>
+            <button class="toggle-grouping ${this._groupByDomain ? 'active' : ''}">${this._t('toggleGrouping')}</button>
+          </div>
+          <div class="control-group">
+            <select class="page-size-selector" data-tab="devices">
+              ${[15,30,50,100].map(n => `<option value="${n}" ${this._pageSize === n ? 'selected' : ''}>${n} ${this._t('itemsPerPage')}</option>`).join('')}
+            </select>
           </div>
         </div>
         <div class="stats">
-          Total Devices: ${devices.length} | Online: ${online} | Availability: ${availability}%
+          ${this._t('totalDevices')}: ${devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}%
         </div>
         <table class="device-table">
           <thead>
             <tr>
-              <th data-sort="name">Name</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Last Seen</th>
-              <th>Uptime</th>
+              <th data-sort="name">${this._t('name')}</th>
+              <th>${this._t('type')}</th>
+              <th>${this._t('status')}</th>
+              <th>${this._t('lastSeen')}</th>
+              <th>${this._t('uptime')}</th>
             </tr>
           </thead>
           <tbody>
-            ${devices
-              .filter((d) => (this._deviceFilter === "all" || d.status === this._deviceFilter) && d.name.toLowerCase().includes(this._searchQuery.toLowerCase()))
+            ${paginatedDevices
               .map(
                 (device) =>
                   `<tr>
@@ -973,6 +913,11 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
               .join("")}
           </tbody>
         </table>
+        <div class="pagination">
+          <button class="pagination-btn pagination-prev" ${this._currentPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
+          <span class="pagination-info">${this._t('page')} ${this._currentPage} ${this._t('of')} ${totalPages}</span>
+          <button class="pagination-btn pagination-next" ${this._currentPage === totalPages ? 'disabled' : ''}>${this._t('next')}</button>
+        </div>
       </div>
     `;
 
@@ -983,53 +928,82 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
       return 0;
     });
 
+    const batteryTotalPages = Math.ceil(batteryDevicesByHealth.length / this._batteryPageSize) || 1;
+    if (this._batteryPage > batteryTotalPages) this._batteryPage = 1;
+    const batteryStart = (this._batteryPage - 1) * this._batteryPageSize;
+    const paginatedBatteries = batteryDevicesByHealth.slice(batteryStart, batteryStart + this._batteryPageSize);
+
     html += `
       <div class="tab-content ${this._activeTab === "batteries" ? "active" : ""}">
         <div class="controls">
           <div class="control-group">
             <select class="battery-sort">
-              <option value="level">Level (Worst First)</option>
-              <option value="name">Name</option>
+              <option value="level" ${this._batterySortBy === 'level' ? 'selected' : ''}>${this._t('levelWorstFirst')}</option>
+              <option value="name" ${this._batterySortBy === 'name' ? 'selected' : ''}>${this._t('name')}</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <select class="page-size-selector" data-tab="batteries">
+              ${[15,30,50,100].map(n => `<option value="${n}" ${this._batteryPageSize === n ? 'selected' : ''}>${n} ${this._t('itemsPerPage')}</option>`).join('')}
             </select>
           </div>
         </div>
         <div class="stats">
-          Battery Health Summary: ${batteryNeedingAttention} device(s) need attention
+          ${this._t('batteryHealthSummary')}: ${batteryNeedingAttention} ${this._t('deviceNeedAttention')}
         </div>
         <div class="battery-grid">
-          ${batteryDevicesByHealth
+          ${paginatedBatteries
             .map(
               (battery) => {
                 const color = this._getBatteryColor(battery.level);
-                const animation = battery.level < 10 ? "animation: pulse 1s infinite;" : "";
                 return `
                   <div class="battery-card">
-                    <div style="font-size: 24px; margin-bottom: 8px;">🔋</div>
-                    <div style="font-size: 14px; font-weight: 600; color: var(--primary-text-color);">${battery.name}</div>
+                    <div style="font-size: 20px; margin-bottom: 6px;">🔋</div>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--tc);">${battery.name}</div>
                     <div class="battery-bar">
-                      <div class="battery-fill" style="width: ${battery.level}%; background: ${color}; ${animation}"></div>
+                      <div class="battery-fill" style="width: ${battery.level}%; background: ${color};"></div>
                     </div>
-                    <div style="font-size: 18px; font-weight: bold; color: ${color};">${battery.level}%</div>
-                    <div class="battery-label">Last changed: ${new Date(battery.lastChanged).toLocaleDateString()}</div>
+                    <div style="font-size: 16px; font-weight: 700; color: ${color};">${battery.level}%</div>
+                    <div class="battery-label">${this._t('lastChanged')}: ${new Date(battery.lastChanged).toLocaleDateString()}</div>
                   </div>
                 `;
               }
             )
             .join("")}
         </div>
+        ${batteryDevicesByHealth.length > this._batteryPageSize ? `
+        <div class="pagination">
+          <button class="pagination-btn bat-prev" ${this._batteryPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
+          <span class="pagination-info">${this._t('page')} ${this._batteryPage} ${this._t('of')} ${batteryTotalPages}</span>
+          <button class="pagination-btn bat-next" ${this._batteryPage === batteryTotalPages ? 'disabled' : ''}>${this._t('next')}</button>
+        </div>` : ''}
       </div>
     `;
 
     // Network Tab
     const protocolCounts = {};
-    let totalDevices = 0;
+    let totalNetDevices = 0;
+    const allNetDevices = [];
     Object.keys(networks).forEach((protocol) => {
       protocolCounts[protocol] = networks[protocol].length;
-      totalDevices += networks[protocol].length;
+      totalNetDevices += networks[protocol].length;
+      networks[protocol].forEach(d => allNetDevices.push({ ...d, protocol }));
     });
+
+    const netTotalPages = Math.ceil(allNetDevices.length / this._networkPageSize) || 1;
+    if (this._networkPage > netTotalPages) this._networkPage = 1;
+    const netStart = (this._networkPage - 1) * this._networkPageSize;
+    const paginatedNet = allNetDevices.slice(netStart, netStart + this._networkPageSize);
 
     html += `
       <div class="tab-content ${this._activeTab === "network" ? "active" : ""}">
+        <div class="controls">
+          <div class="control-group">
+            <select class="page-size-selector" data-tab="network">
+              ${[15,30,50,100].map(n => `<option value="${n}" ${this._networkPageSize === n ? 'selected' : ''}>${n} ${this._t('itemsPerPage')}</option>`).join('')}
+            </select>
+          </div>
+        </div>
         <div class="network-stats">
     `;
 
@@ -1037,36 +1011,47 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
       html += `
         <div class="network-stat">
           <div class="network-stat-value">${protocolCounts[protocol]}</div>
-          <div class="network-stat-label">${protocol} Devices</div>
+          <div class="network-stat-label">${protocol} ${this._t('networkDevices')}</div>
         </div>
       `;
     });
 
     html += `
         </div>
-        <canvas id="signal-chart" width="400" height="300"></canvas>
+        <canvas id="signal-chart" width="400" height="250"></canvas>
     `;
 
-    Object.keys(networks).forEach((protocol) => {
+    // Group paginated devices by protocol for display
+    let lastProto = '';
+    paginatedNet.forEach((device) => {
+      if (device.protocol !== lastProto) {
+        lastProto = device.protocol;
+        html += `<div class="section-title">${device.protocol} Network</div>`;
+      }
+      const color = this._getSignalColor(device.rssi);
+      const strength = Math.max(0, Math.min(100, ((device.rssi + 100) / 50) * 100));
       html += `
-        <h3 style="margin-top: 24px; color: var(--primary-text-color);">${protocol} Network</h3>
-      `;
-      networks[protocol].forEach((device) => {
-        const color = this._getSignalColor(device.rssi);
-        const strength = Math.max(0, Math.min(100, ((device.rssi + 100) / 50) * 100));
-        html += `
-          <div style="margin-bottom: 12px;">
-            <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">${device.name}</div>
-            <div class="rssi-bar">
-              <div class="rssi-value" style="color: ${color};">${device.rssi} dBm</div>
-              <div class="rssi-indicator">
-                <div class="rssi-fill" style="width: ${strength}%; background: ${color};"></div>
-              </div>
+        <div style="margin-bottom: 8px;">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--tc);">${device.name}</div>
+          <div class="rssi-bar">
+            <div class="rssi-value" style="color: ${color};">${device.rssi} dBm</div>
+            <div class="rssi-indicator">
+              <div class="rssi-fill" style="width: ${strength}%; background: ${color};"></div>
             </div>
           </div>
-        `;
-      });
+        </div>
+      `;
     });
+
+    if (allNetDevices.length > this._networkPageSize) {
+      html += `
+        <div class="pagination">
+          <button class="pagination-btn net-prev" ${this._networkPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
+          <span class="pagination-info">${this._t('page')} ${this._networkPage} ${this._t('of')} ${netTotalPages}</span>
+          <button class="pagination-btn net-next" ${this._networkPage === netTotalPages ? 'disabled' : ''}>${this._t('next')}</button>
+        </div>
+      `;
+    }
 
     html += `
       </div>
@@ -1076,12 +1061,12 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     html += `
       <div class="tab-content ${this._activeTab === "alerts" ? "active" : ""}">
         <div class="stats">
-          Active Alerts: ${this._alerts.length}
+          ${this._t('activeAlerts')}: ${this._alerts.length}
         </div>
     `;
 
     if (this._alerts.length === 0) {
-      html += `<div class="empty-state">No active alerts</div>`;
+      html += `<div class="empty-state">${this._t('noActiveAlerts')}</div>`;
     } else {
       this._alerts.forEach((alert) => {
         const alertId = `${alert.type}_${alert.id}`;
@@ -1093,7 +1078,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
               <div class="alert-time">${new Date(alert.timestamp).toLocaleString()}</div>
             </div>
             <div class="alert-actions">
-              <button class="alert-dismiss" data-alert-id="${alertId}">Dismiss</button>
+              <button class="alert-dismiss" data-alert-id="${alertId}">${this._t('dismiss')}</button>
             </div>
           </div>
         `;
@@ -1101,14 +1086,14 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     }
 
     html += `
-      <h3 style="margin-top: 24px; color: var(--primary-text-color);">Alert History (Last 20)</h3>
+      <div class="section-title">${this._t('alertHistory')}</div>
       ${this._alertHistory
         .slice(0, 20)
         .map(
           (alert) =>
-            `<div style="padding: 8px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "#F44336" : alert.severity === "warning" ? "#FFC107" : "#2196F3"}; margin-bottom: 4px;">
-              <small>${alert.type} - ${alert.name}</small><br>
-              <tiny style="color: var(--secondary-text-color);">${new Date(alert.timestamp).toLocaleString()}</tiny>
+            `<div style="padding: 8px 12px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "var(--ec)" : alert.severity === "warning" ? "var(--wc)" : "var(--pc)"}; margin-bottom: 4px; border-radius: var(--radius-xs); background: var(--bg);">
+              <div style="font-size: 12px; font-weight: 500; color: var(--tc);">${alert.type.replace(/_/g, ' ')} — ${alert.name}</div>
+              <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${new Date(alert.timestamp).toLocaleString()}</div>
             </div>`
         )
         .join("")}
@@ -1183,6 +1168,72 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
         this._render();
       });
     });
+
+    // Page size selectors (per tab)
+    this.shadowRoot.querySelectorAll(".page-size-selector").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const tab = e.target.dataset.tab;
+        const val = parseInt(e.target.value);
+        if (tab === 'devices') { this._pageSize = val; this._currentPage = 1; }
+        else if (tab === 'batteries') { this._batteryPageSize = val; this._batteryPage = 1; }
+        else if (tab === 'network') { this._networkPageSize = val; this._networkPage = 1; }
+        this._render();
+      });
+    });
+
+    // Devices pagination
+    const prevBtn = this.shadowRoot.querySelector(".pagination-prev");
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        if (this._currentPage > 1) { this._currentPage--; this._render(); }
+      });
+    }
+
+    const nextBtn = this.shadowRoot.querySelector(".pagination-next");
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        const filteredDevices = this._getDevices().filter(
+          (d) => (this._deviceFilter === "all" || d.status === this._deviceFilter) &&
+                  d.name.toLowerCase().includes(this._searchQuery.toLowerCase())
+        );
+        const totalPages = Math.ceil(filteredDevices.length / this._pageSize) || 1;
+        if (this._currentPage < totalPages) { this._currentPage++; this._render(); }
+      });
+    }
+
+    // Battery pagination
+    const batPrev = this.shadowRoot.querySelector(".bat-prev");
+    if (batPrev) {
+      batPrev.addEventListener("click", () => {
+        if (this._batteryPage > 1) { this._batteryPage--; this._render(); }
+      });
+    }
+    const batNext = this.shadowRoot.querySelector(".bat-next");
+    if (batNext) {
+      batNext.addEventListener("click", () => {
+        const batteries = this._getBatteryDevices();
+        const tp = Math.ceil(batteries.length / this._batteryPageSize) || 1;
+        if (this._batteryPage < tp) { this._batteryPage++; this._render(); }
+      });
+    }
+
+    // Network pagination
+    const netPrev = this.shadowRoot.querySelector(".net-prev");
+    if (netPrev) {
+      netPrev.addEventListener("click", () => {
+        if (this._networkPage > 1) { this._networkPage--; this._render(); }
+      });
+    }
+    const netNext = this.shadowRoot.querySelector(".net-next");
+    if (netNext) {
+      netNext.addEventListener("click", () => {
+        const networks = this._getNetworkDevices();
+        let total = 0;
+        Object.values(networks).forEach(arr => total += arr.length);
+        const tp = Math.ceil(total / this._networkPageSize) || 1;
+        if (this._networkPage < tp) { this._networkPage++; this._render(); }
+      });
+    }
   }
 
   _drawSignalChart() {
@@ -1214,7 +1265,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const chartHeight = height - padding * 2;
 
     // Draw axes
-    ctx.strokeStyle = "#ccc";
+    ctx.strokeStyle = "#E2E8F0";
     ctx.beginPath();
     ctx.moveTo(padding, padding);
     ctx.lineTo(padding, height - padding);
@@ -1239,7 +1290,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const barWidth = chartWidth / bins;
 
     // Draw bars
-    ctx.fillStyle = "#03a9f4";
+    ctx.fillStyle = "#3B82F6";
     histogram.forEach((count, i) => {
       const barHeight = (count / maxCount) * chartHeight;
       const x = padding + i * barWidth;
@@ -1248,8 +1299,8 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     });
 
     // Draw labels
-    ctx.fillStyle = "#666";
-    ctx.font = "12px sans-serif";
+    ctx.fillStyle = "#64748B";
+    ctx.font = "12px Inter, sans-serif";
     ctx.textAlign = "center";
     for (let i = 0; i <= bins; i++) {
       const rssi = minRssi + i * binWidth;
@@ -1258,7 +1309,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     }
 
     ctx.textAlign = "left";
-    ctx.fillText("Signal Strength Distribution (dBm)", padding, padding - 10);
+    ctx.fillText(this._t('signalStrengthDist'), padding, padding - 10);
   }
 
   static getConfigElement() {
@@ -1278,3 +1329,14 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
 }
 
 customElements.define("ha-device-health", HADeviceHealth);
+
+// Auto-load HA Tools Panel (if not already registered)
+if (!customElements.get('ha-tools-panel')) {
+  const _currentScript = document.currentScript?.src || '';
+  const _baseUrl = _currentScript.substring(0, _currentScript.lastIndexOf('/') + 1);
+  if (_baseUrl) {
+    const _s = document.createElement('script');
+    _s.src = _baseUrl + 'ha-tools-panel.js';
+    document.head.appendChild(_s);
+  }
+}

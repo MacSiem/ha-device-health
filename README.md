@@ -1,33 +1,35 @@
-# HA Device Health
+# 🏥 Device Health
 
-![HA Device Health Screenshot](screenshot.png)
+Monitor device status, batteries, network connectivity and alerts in Home Assistant
 
-Monitor device battery levels, connectivity status, and overall health across your smart home. Provides alerts for low battery, offline devices, and unavailable entities.
+Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for Home Assistant.
 
 ## Installation
 
 ### HACS (recommended)
-
 1. Open HACS in Home Assistant
-2. Go to **Frontend** section
-3. Click the three dots menu > **Custom repositories**
-4. Add `https://github.com/MacSiem/ha-device-health` as **Dashboard**
-5. Install **HA Device Health**
-6. Restart Home Assistant
+2. Go to Frontend > Explore & Download Repositories
+3. Search for "Device Health"
+4. Install and restart Home Assistant
 
 ### Manual
+1. Download `ha-device-health.js` from this repository
+2. Copy to `/config/www/community/ha-device-health/`
+3. Add as a Lovelace resource
 
-Copy the contents to `/config/www/community/ha-device-health/`
+## Screenshot
 
-## Design
+![Screenshot](screenshot.png)
 
-Uses **Modern Bento Light Mode** design system:
+## Changelog
 
-- Background: `#F8FAFC`
-- Primary: `#3B82F6`
-- Text: `#1E293B`
-- Border: `#E2E8F0`
-- Font: Inter, 16px border-radius, smooth animations
+### v2.3 (2026-03-17)
+- Bento Light Mode UI redesign (Inter font, blue accent #3B82F6)
+- Throttled hass updates (5s) to prevent UI lag
+- Stable pagination and data persistence
+- Fixed dual-script loading (customElements.define guard)
+- CSS custom properties for theming (--bento-primary, --bento-bg, etc.)
+- Improved readability and layout consistency
 
 ## License
 
