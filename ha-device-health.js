@@ -24,7 +24,7 @@ class HADeviceHealth extends HTMLElement {
     // Throttle control
     this._renderScheduled = false;
     this._firstRender = true;
-    this._throttleMs = 5000;
+    this._throttleMs = 15000;
     this._lastRenderTime = 0;
     this._cachedStateHash = ''
     this._charts = {}; // Store Chart.js instances
@@ -159,6 +159,9 @@ class HADeviceHealth extends HTMLElement {
         this._renderScheduled = true;
         setTimeout(() => {
           this._renderScheduled = false;
+          const newHash = Object.keys(hass.states).length + '_' + (hass.states['sun.sun'] ? hass.states['sun.sun'].state : '');
+          if (newHash === this._cachedStateHash) return;
+          this._cachedStateHash = newHash;
           this._generateAlerts();
           this._render();
         }, this._throttleMs - (now - this._lastRenderTime));
