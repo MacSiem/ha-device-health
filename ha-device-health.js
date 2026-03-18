@@ -1084,7 +1084,12 @@ class HADeviceHealth extends HTMLElement {
     if (this._alerts.length === 0) {
       html += `<div class="empty-state">${this._t('noActiveAlerts')}</div>`;
     } else {
-      this._alerts.forEach((alert) => {
+      const alertTotalPages = Math.ceil(this._alerts.length / this._alertPageSize) || 1;
+      if (this._alertPage > alertTotalPages) this._alertPage = 1;
+      const alertStart = (this._alertPage - 1) * this._alertPageSize;
+      const alertEnd = alertStart + this._alertPageSize;
+      const alertsPage = this._alerts.slice(alertStart, alertEnd);
+      alertsPage.forEach((alert) => {
         const alertId = `${alert.type}_${alert.id}`;
         html += `
           <div class="alert-item alert-${alert.severity}">
@@ -1099,12 +1104,25 @@ class HADeviceHealth extends HTMLElement {
           </div>
         `;
       });
+      if (alertTotalPages > 1) {
+        html += `<div class="pagination">
+          <button class="pagination-btn alert-prev" ${this._alertPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
+          <span class="pagination-info">${this._t('page')} ${this._alertPage} ${this._t('of')} ${alertTotalPages}</span>
+          <button class="pagination-btn alert-next" ${this._alertPage === alertTotalPages ? 'disabled' : ''}>${this._t('next')}</button>
+        </div>`;
+      }
     }
 
+    // Alert History with pagination
+    const historyTotalPages = Math.ceil(this._alertHistory.length / this._historyPageSize) || 1;
+    if (this._historyPage > historyTotalPages) this._historyPage = 1;
+    const histStart = (this._historyPage - 1) * this._historyPageSize;
+    const histEnd = histStart + this._historyPageSize;
+    const historyPage = this._alertHistory.slice(histStart, histEnd);
+
     html += `
-      <div class="section-title">${this._t('alertHistory')}</div>
-      ${this._alertHistory
-        .slice(0, 20)
+      <div class="section-title">${this._t('alertHistory')} (${this._alertHistory.length})</div>
+      ${historyPage
         .map(
           (alert) =>
             `<div style="padding: 8px 12px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "var(--ec)" : alert.severity === "warning" ? "var(--wc)" : "var(--pc)"}; margin-bottom: 4px; border-radius: var(--radius-xs); background: var(--bg);">
@@ -1113,6 +1131,11 @@ class HADeviceHealth extends HTMLElement {
             </div>`
         )
         .join("")}
+    ${historyTotalPages > 1 ? `<div class="pagination">
+      <button class="pagination-btn hist-prev" ${this._historyPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
+      <span class="pagination-info">${this._t('page')} ${this._historyPage} ${this._t('of')} ${historyTotalPages}</span>
+      <button class="pagination-btn hist-next" ${this._historyPage === historyTotalPages ? 'disabled' : ''}>${this._t('next')}</button>
+    </div>` : ''}
     </div>
     </div>
     `;
@@ -1233,7 +1256,36 @@ class HADeviceHealth extends HTMLElement {
       });
     }
 
-    // Network pagination
+    // Alert pagination
+    const alertPrev = this.shadowRoot.querySelector(".alert-prev");
+    if (alertPrev) {
+      alertPrev.addEventListener("click", () => {
+        if (this._alertPage > 1) { this._alertPage--; this._render(); }
+      });
+    }
+    const alertNext = this.shadowRoot.querySelector(".alert-next");
+    if (alertNext) {
+      alertNext.addEventListener("click", () => {
+        const tp = Math.ceil(this._alerts.length / this._alertPageSize) || 1;
+        if (this._alertPage < tp) { this._alertPage++; this._render(); }
+      });
+    }
+
+    // History pagination
+    const histPrev = this.shadowRoot.querySelector(".hist-prev");
+    if (histPrev) {
+      histPrev.addEventListener("click", () => {
+        if (this._historyPage > 1) { this._historyPage--; this._render(); }
+      });
+    }
+    const histNext = this.shadowRoot.querySelector(".hist-next");
+    if (histNext) {
+      histNext.addEventListener("click", () => {
+        const tp = Math.ceil(this._alertHistory.length / this._historyPageSize) || 1;
+        if (this._historyPage < tp) { this._historyPage++; this._render(); }
+      });
+    }
+        // Network pagination
     const netPrev = this.shadowRoot.querySelector(".net-prev");
     if (netPrev) {
       netPrev.addEventListener("click", () => {
