@@ -26,7 +26,9 @@ class HADeviceHealth extends HTMLElement {
     this._firstRender = true;
     this._throttleMs = 5000;
     this._lastRenderTime = 0;
-    this._cachedStateHash = '';
+    this._cachedStateHash = ''
+    this._charts = {}; // Store Chart.js instances
+    this._chartJSPromise = null;;
   }
 
   static get _translations() {
@@ -1304,43 +1306,38 @@ class HADeviceHealth extends HTMLElement {
     }
   }
 
-  _drawSignalChart() {
+    _drawSignalChart() {
     const canvas = this.shadowRoot.querySelector("#signal-chart");
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    // Ensure Chart.js is loaded
+    if (!window.Chart) {
+      this._loadChartJS().then(() => this._drawSignalChartWithChartJS());
+      return;
+    }
 
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+    this._drawSignalChartWithChartJS();
+  }
+
+  _drawSignalChartWithChartJS() {
+    const canvas = this.shadowRoot.querySelector("#signal-chart");
+    if (!canvas) return;
 
     const networks = this._getNetworkDevices();
     const allDevices = [];
     Object.keys(networks).forEach((protocol) => {
       networks[protocol].forEach((device) => {
-        allDevices.push({ rssi: device.rssi, protocol });
+        allDevices.push({ rssi: device.rssi, protocol, name: device.name });
       });
     });
 
-    if (allDevices.length === 0) return;
+    if (allDevices.length === 0) {
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
 
-    const width = rect.width;
-    const height = rect.height;
-    const padding = 40;
-    const chartWidth = width - padding * 2;
-    const chartHeight = height - padding * 2;
-
-    // Draw axes
-    ctx.strokeStyle = "#E2E8F0";
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.lineTo(width - padding, height - padding);
-    ctx.stroke();
-
-    // Create histogram
+    // Create histogram bins
     const bins = 10;
     const histogram = new Array(bins).fill(0);
     const minRssi = -100;
@@ -1354,30 +1351,114 @@ class HADeviceHealth extends HTMLElement {
       }
     });
 
-    const maxCount = Math.max(...histogram);
-    const barWidth = chartWidth / bins;
-
-    // Draw bars
-    ctx.fillStyle = "#3B82F6";
-    histogram.forEach((count, i) => {
-      const barHeight = (count / maxCount) * chartHeight;
-      const x = padding + i * barWidth;
-      const y = height - padding - barHeight;
-      ctx.fillRect(x, y, barWidth * 0.9, barHeight);
-    });
-
-    // Draw labels
-    ctx.fillStyle = "#64748B";
-    ctx.font = "12px Inter, sans-serif";
-    ctx.textAlign = "center";
-    for (let i = 0; i <= bins; i++) {
+    // Prepare chart data
+    const labels = [];
+    for (let i = 0; i < bins; i++) {
       const rssi = minRssi + i * binWidth;
-      const x = padding + i * barWidth;
-      ctx.fillText(rssi.toFixed(0), x, height - padding + 20);
+      labels.push(`${rssi.toFixed(0)}`);
     }
 
-    ctx.textAlign = "left";
-    ctx.fillText(this._t('signalStrengthDist'), padding, padding - 10);
+    const chartConfig = {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: this._t("signalStrengthDist"),
+            data: histogram,
+            backgroundColor: "#3B82F6",
+            borderColor: "#1E40AF",
+            borderWidth: 1,
+            borderRadius: 4,
+            barPercentage: 0.8,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: "x",
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              font: { family: "Inter, sans-serif", size: 12 },
+              color: "#64748B",
+              padding: 15
+            }
+          },
+          tooltip: {
+            backgroundColor: "rgba(30, 41, 59, 0.8)",
+            padding: 8,
+            titleFont: { family: "Inter, sans-serif", size: 12 },
+            bodyFont: { family: "Inter, sans-serif", size: 12 },
+            cornerRadius: 4,
+            displayColors: false
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              font: { family: "Inter, sans-serif", size: 11 },
+              color: "#64748B"
+            },
+            grid: {
+              color: "#E2E8F0",
+              drawBorder: false
+            }
+          },
+          x: {
+            ticks: {
+              font: { family: "Inter, sans-serif", size: 11 },
+              color: "#64748B"
+            },
+            grid: {
+              display: false
+            }
+          }
+        }
+      }
+    };
+
+    // Destroy existing chart if it exists
+    if (this._charts.signal) {
+      this._charts.signal.destroy();
+    }
+
+    // Create new chart
+    const ctx = canvas.getContext("2d");
+    this._charts.signal = new window.Chart(ctx, chartConfig);
+  }
+
+  _loadChartJS() {
+    // Return cached promise if already loading/loaded
+    if (this._chartJSPromise) {
+      return this._chartJSPromise;
+    }
+
+    // Check if already loaded
+    if (window.Chart) {
+      this._chartJSPromise = Promise.resolve();
+      return this._chartJSPromise;
+    }
+
+    // Load Chart.js from CDN
+    this._chartJSPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js";
+      script.async = true;
+      script.onload = () => {
+        // Give Chart.js a moment to initialize
+        setTimeout(() => resolve(), 100);
+      };
+      script.onerror = () => {
+        reject(new Error("Failed to load Chart.js"));
+      };
+      document.head.appendChild(script);
+    });
+
+    return this._chartJSPromise;
   }
 
   static getConfigElement() {
@@ -1407,4 +1488,14 @@ if (!customElements.get('ha-tools-panel')) {
     _s.src = _baseUrl + 'ha-tools-panel.js';
     document.head.appendChild(_s);
   }
+  disconnectedCallback() {
+    // Clean up Chart.js instances when component is removed
+    Object.keys(this._charts).forEach((key) => {
+      if (this._charts[key]) {
+        this._charts[key].destroy();
+        delete this._charts[key];
+      }
+    });
+  }
+
 }
