@@ -1,4 +1,4 @@
-class HADeviceHealth extends HTMLElement {
+﻿class HADeviceHealth extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -1502,6 +1502,16 @@ class HADeviceHealth extends HTMLElement {
       offline_alert_minutes: 60,
     };
   }
+
+  disconnectedCallback() {
+    // Clean up Chart.js instances when component is removed
+    Object.keys(this._charts).forEach((key) => {
+      if (this._charts[key]) {
+        this._charts[key].destroy();
+        delete this._charts[key];
+      }
+    });
+  }
 }
 
 customElements.define("ha-device-health", HADeviceHealth);
@@ -1514,15 +1524,6 @@ if (!customElements.get('ha-tools-panel')) {
     const _s = document.createElement('script');
     _s.src = _baseUrl + 'ha-tools-panel.js';
     document.head.appendChild(_s);
-  }
-  disconnectedCallback() {
-    // Clean up Chart.js instances when component is removed
-    Object.keys(this._charts).forEach((key) => {
-      if (this._charts[key]) {
-        this._charts[key].destroy();
-        delete this._charts[key];
-      }
-    });
   }
 
 }
