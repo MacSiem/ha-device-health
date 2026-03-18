@@ -31,6 +31,27 @@ class HADeviceHealth extends HTMLElement {
     this._chartJSPromise = null;;
   }
 
+
+  // ── Persistence ──
+  _storageKey(suffix) {
+    return 'ha-device-health-' + (this._config.storage_key || 'default') + '-' + suffix;
+  }
+
+  _saveAlertData() {
+    try {
+      localStorage.setItem(this._storageKey('acknowledged'), JSON.stringify([...this._acknowledgedAlerts]));
+      localStorage.setItem(this._storageKey('history'), JSON.stringify(this._alertHistory));
+    } catch(e) { /* storage full */ }
+  }
+
+  _loadAlertData() {
+    try {
+      const ack = localStorage.getItem(this._storageKey('acknowledged'));
+      if (ack) { this._acknowledgedAlerts = new Set(JSON.parse(ack)); }
+      const hist = localStorage.getItem(this._storageKey('history'));
+      if (hist) { this._alertHistory = JSON.parse(hist); }
+    } catch(e) { /* parse error */ }
+  }
   static get _translations() {
     return {
       en: {
@@ -120,6 +141,7 @@ class HADeviceHealth extends HTMLElement {
       offline_alert_minutes: 60,
       ...config,
     };
+    this._loadAlertData();
   }
 
   set hass(hass) {
@@ -341,6 +363,7 @@ class HADeviceHealth extends HTMLElement {
       this._alerts.push({ type, name, id, severity, timestamp: new Date().toISOString() });
       this._alertHistory.unshift({ type, name, id, severity, timestamp: new Date().toISOString() });
       if (this._alertHistory.length > 20) this._alertHistory.pop();
+      this._saveAlertData();
     }
   }
 
@@ -1193,6 +1216,7 @@ class HADeviceHealth extends HTMLElement {
       btn.addEventListener("click", (e) => {
         const alertId = e.target.dataset.alertId;
         this._acknowledgedAlerts.add(alertId);
+        this._saveAlertData();
         this._update();
       });
     });
