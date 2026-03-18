@@ -825,6 +825,22 @@ class HADeviceHealth extends HTMLElement {
         color: var(--tc);
         margin: 20px 0 10px;
       }
+
+      /* RESPONSIVE */
+      @media (max-width: 768px) {
+        .device-grid, .battery-grid { grid-template-columns: 1fr !important; }
+        .card { padding: 12px; }
+        .header { flex-direction: column; gap: 8px; }
+        .header h2 { font-size: 16px; }
+        .tab-bar { flex-wrap: wrap; }
+        .tab { font-size: 12px; padding: 6px 10px; }
+        table { font-size: 12px; }
+        td, th { padding: 6px 8px; }
+      }
+      @media (max-width: 480px) {
+        .device-grid, .battery-grid { gap: 8px; }
+        .tab { font-size: 11px; padding: 5px 8px; }
+      }
     `;
 
     const devices = this._getDevices();
