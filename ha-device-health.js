@@ -237,21 +237,68 @@ class HADeviceHealth extends HTMLElement {
 
     const states = this._hass.states;
 
+    // Method 1: Find entities with signal/rssi in entity ID
     Object.keys(states).forEach((entityId) => {
       if (entityId.includes("_signal") || entityId.includes("signal_strength") || entityId.includes("rssi")) {
         const state = states[entityId];
         const rssi = parseInt(state.state);
-
         if (!isNaN(rssi)) {
           const protocol = this._detectProtocol(entityId);
-          if (!networks[protocol]) {
-            networks[protocol] = [];
-          }
+          if (!networks[protocol]) networks[protocol] = [];
           networks[protocol].push({
             id: entityId,
             name: state.attributes.friendly_name || this._formatEntityName(entityId),
             rssi: rssi,
             device: state.attributes.device_name || this._extractDeviceName(entityId),
+          });
+        }
+      }
+    });
+
+    // Method 2: Find entities with network ATTRIBUTES (mac, ip, ssid, rssi)
+    Object.entries(states).forEach(([entityId, state]) => {
+      const a = state.attributes || {};
+      const mac = a.mac || a.mac_address || a.host_mac || '';
+      const ip = a.ip || a.ip_address || a.local_ip || '';
+      const ssid = a.essid || a.ssid || a.wifi_name || '';
+      const rssi = a.rssi || a.signal_strength || a.wifi_signal;
+      const connType = a.connection_type || (a.is_wired ? 'ethernet' : (ssid ? 'wifi' : ''));
+
+      if (mac || ip || ssid || (rssi !== undefined && rssi !== null)) {
+        const protocol = connType === 'ethernet' ? 'Ethernet' : (ssid ? 'WiFi' : this._detectProtocol(entityId));
+        if (!networks[protocol]) networks[protocol] = [];
+        // Avoid duplicates
+        if (!networks[protocol].find(d => d.id === entityId)) {
+          networks[protocol].push({
+            id: entityId,
+            name: a.friendly_name || this._formatEntityName(entityId),
+            rssi: typeof rssi === 'number' ? rssi : null,
+            device: a.device_name || a.friendly_name || this._extractDeviceName(entityId),
+            mac: mac,
+            ip: ip,
+            ssid: ssid,
+            connectionType: connType
+          });
+        }
+      }
+    });
+
+    // Method 3: Add device_tracker entities with source_type 'router' (network-connected devices)
+    Object.entries(states).forEach(([entityId, state]) => {
+      if (entityId.startsWith('device_tracker.') && state.attributes.source_type === 'router') {
+        const a = state.attributes;
+        const protocol = 'WiFi';
+        if (!networks[protocol]) networks[protocol] = [];
+        if (!networks[protocol].find(d => d.id === entityId)) {
+          networks[protocol].push({
+            id: entityId,
+            name: a.friendly_name || this._formatEntityName(entityId),
+            rssi: a.rssi || null,
+            device: a.friendly_name || this._extractDeviceName(entityId),
+            mac: a.mac || '',
+            ip: a.ip || '',
+            ssid: a.essid || a.ssid || '',
+            connectionType: 'wifi'
           });
         }
       }
@@ -1041,17 +1088,25 @@ class HADeviceHealth extends HTMLElement {
         lastProto = device.protocol;
         html += `<div class="section-title">${device.protocol} Network</div>`;
       }
-      const color = this._getSignalColor(device.rssi);
-      const strength = Math.max(0, Math.min(100, ((device.rssi + 100) / 50) * 100));
+      const hasRssi = device.rssi !== null && device.rssi !== undefined && !isNaN(device.rssi);
+      const color = hasRssi ? this._getSignalColor(device.rssi) : '#94a3b8';
+      const strength = hasRssi ? Math.max(0, Math.min(100, ((device.rssi + 100) / 50) * 100)) : 0;
+
+      // Build detail line with MAC/IP/SSID
+      const details = [];
+      if (device.mac) details.push('<code style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:3px;">' + device.mac + '</code>');
+      if (device.ip) details.push('IP: ' + device.ip);
+      if (device.ssid) details.push('\u{1F4F6} ' + device.ssid);
+      if (device.connectionType) details.push(device.connectionType);
+
       html += `
-        <div style="margin-bottom: 8px;">
-          <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--tc);">${device.name}</div>
-          <div class="rssi-bar">
-            <div class="rssi-value" style="color: ${color};">${device.rssi} dBm</div>
-            <div class="rssi-indicator">
-              <div class="rssi-fill" style="width: ${strength}%; background: ${color};"></div>
-            </div>
+        <div style="margin-bottom: 10px; padding: 8px; border: 1px solid var(--dc); border-radius: 8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="font-size:13px;font-weight:600;color:var(--tc);">${device.name}</span>
+            ${hasRssi ? '<span style="font-size:12px;color:' + color + ';font-weight:500;">' + device.rssi + ' dBm</span>' : ''}
           </div>
+          ${details.length > 0 ? '<div style="font-size:11px;color:var(--ts);display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;">' + details.join(' &middot; ') + '</div>' : ''}
+          ${hasRssi ? '<div class="rssi-bar"><div class="rssi-indicator"><div class="rssi-fill" style="width:' + strength + '%;background:' + color + ';"></div></div></div>' : ''}
         </div>
       `;
     });
