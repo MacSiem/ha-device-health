@@ -1,4 +1,4 @@
-﻿class HADeviceHealth extends HTMLElement {
+class HADeviceHealth extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -24,34 +24,11 @@
     // Throttle control
     this._renderScheduled = false;
     this._firstRender = true;
-    this._throttleMs = 15000;
+    this._throttleMs = 5000;
     this._lastRenderTime = 0;
-    this._cachedStateHash = ''
-    this._charts = {}; // Store Chart.js instances
-    this._chartJSPromise = null;;
+    this._cachedStateHash = '';
   }
 
-
-  // ── Persistence ──
-  _storageKey(suffix) {
-    return 'ha-device-health-' + (this._config.storage_key || 'default') + '-' + suffix;
-  }
-
-  _saveAlertData() {
-    try {
-      localStorage.setItem(this._storageKey('acknowledged'), JSON.stringify([...this._acknowledgedAlerts]));
-      localStorage.setItem(this._storageKey('history'), JSON.stringify(this._alertHistory));
-    } catch(e) { /* storage full */ }
-  }
-
-  _loadAlertData() {
-    try {
-      const ack = localStorage.getItem(this._storageKey('acknowledged'));
-      if (ack) { this._acknowledgedAlerts = new Set(JSON.parse(ack)); }
-      const hist = localStorage.getItem(this._storageKey('history'));
-      if (hist) { this._alertHistory = JSON.parse(hist); }
-    } catch(e) { /* parse error */ }
-  }
   static get _translations() {
     return {
       en: {
@@ -141,7 +118,6 @@
       offline_alert_minutes: 60,
       ...config,
     };
-    this._loadAlertData();
   }
 
   set hass(hass) {
@@ -159,9 +135,6 @@
         this._renderScheduled = true;
         setTimeout(() => {
           this._renderScheduled = false;
-          const newHash = Object.keys(hass.states).length + '_' + (hass.states['sun.sun'] ? hass.states['sun.sun'].state : '');
-          if (newHash === this._cachedStateHash) return;
-          this._cachedStateHash = newHash;
           this._generateAlerts();
           this._render();
         }, this._throttleMs - (now - this._lastRenderTime));
@@ -366,7 +339,6 @@
       this._alerts.push({ type, name, id, severity, timestamp: new Date().toISOString() });
       this._alertHistory.unshift({ type, name, id, severity, timestamp: new Date().toISOString() });
       if (this._alertHistory.length > 20) this._alertHistory.pop();
-      this._saveAlertData();
     }
   }
 
@@ -434,28 +406,8 @@
         --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
         --tr: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         display: block;
-        color-scheme: light dark;
+        color-scheme: light !important;
       }
-@media (prefers-color-scheme: dark) {
-  :host {
-    --bg: #1a1a2e;
-    --cbg: #16213e;
-    --tc: #e2e8f0;
-    --ts: #94a3b8;
-    --dc: #334155;
-    --pc: #3B82F6;
-    --ec: #f87171;
-    --wc: #fbbf24;
-    --sc: #34d399;
-  }
-}
-:host-context([data-themes]) {
-  --bg: var(--lovelace-background, var(--primary-background-color, #F8FAFC));
-  --cbg: var(--card-background-color, var(--ha-card-background, #FFFFFF));
-  --tc: var(--primary-text-color, #1E293B);
-  --ts: var(--secondary-text-color, #64748B);
-  --dc: var(--divider-color, #E2E8F0);
-}
 
       * { box-sizing: border-box; }
 
@@ -797,9 +749,11 @@
       canvas {
         width: 100%;
         height: 250px;
+        max-height: 300px;
         border: 1px solid var(--dc);
         border-radius: var(--radius-xs);
         margin-bottom: 16px;
+        display: block;
       }
 
       .empty-state {
@@ -874,20 +828,15 @@
         margin: 20px 0 10px;
       }
 
-      /* RESPONSIVE */
       @media (max-width: 768px) {
         .device-grid, .battery-grid { grid-template-columns: 1fr !important; }
-        .card { padding: 12px; }
-        .header { flex-direction: column; gap: 8px; }
-        .header h2 { font-size: 16px; }
-        .tab-bar { flex-wrap: wrap; }
-        .tab { font-size: 12px; padding: 6px 10px; }
-        table { font-size: 12px; }
-        td, th { padding: 6px 8px; }
-      }
-      @media (max-width: 480px) {
-        .device-grid, .battery-grid { gap: 8px; }
-        .tab { font-size: 11px; padding: 5px 8px; }
+        .device-table { font-size: 11px; }
+        .device-table td, .device-table th { padding: 6px 4px; font-size: 11px; }
+        .device-table th:nth-child(2), .device-table td:nth-child(2) { display: none; }
+        .device-table th:nth-child(5), .device-table td:nth-child(5) { display: none; }
+        .controls { flex-wrap: wrap; gap: 8px; }
+        .control-group { min-width: 0; }
+        h2 { font-size: 18px !important; }
       }
     `;
 
@@ -1132,12 +1081,7 @@
     if (this._alerts.length === 0) {
       html += `<div class="empty-state">${this._t('noActiveAlerts')}</div>`;
     } else {
-      const alertTotalPages = Math.ceil(this._alerts.length / this._alertPageSize) || 1;
-      if (this._alertPage > alertTotalPages) this._alertPage = 1;
-      const alertStart = (this._alertPage - 1) * this._alertPageSize;
-      const alertEnd = alertStart + this._alertPageSize;
-      const alertsPage = this._alerts.slice(alertStart, alertEnd);
-      alertsPage.forEach((alert) => {
+      this._alerts.forEach((alert) => {
         const alertId = `${alert.type}_${alert.id}`;
         html += `
           <div class="alert-item alert-${alert.severity}">
@@ -1152,25 +1096,12 @@
           </div>
         `;
       });
-      if (alertTotalPages > 1) {
-        html += `<div class="pagination">
-          <button class="pagination-btn alert-prev" ${this._alertPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
-          <span class="pagination-info">${this._t('page')} ${this._alertPage} ${this._t('of')} ${alertTotalPages}</span>
-          <button class="pagination-btn alert-next" ${this._alertPage === alertTotalPages ? 'disabled' : ''}>${this._t('next')}</button>
-        </div>`;
-      }
     }
 
-    // Alert History with pagination
-    const historyTotalPages = Math.ceil(this._alertHistory.length / this._historyPageSize) || 1;
-    if (this._historyPage > historyTotalPages) this._historyPage = 1;
-    const histStart = (this._historyPage - 1) * this._historyPageSize;
-    const histEnd = histStart + this._historyPageSize;
-    const historyPage = this._alertHistory.slice(histStart, histEnd);
-
     html += `
-      <div class="section-title">${this._t('alertHistory')} (${this._alertHistory.length})</div>
-      ${historyPage
+      <div class="section-title">${this._t('alertHistory')}</div>
+      ${this._alertHistory
+        .slice(0, 20)
         .map(
           (alert) =>
             `<div style="padding: 8px 12px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "var(--ec)" : alert.severity === "warning" ? "var(--wc)" : "var(--pc)"}; margin-bottom: 4px; border-radius: var(--radius-xs); background: var(--bg);">
@@ -1179,11 +1110,6 @@
             </div>`
         )
         .join("")}
-    ${historyTotalPages > 1 ? `<div class="pagination">
-      <button class="pagination-btn hist-prev" ${this._historyPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
-      <span class="pagination-info">${this._t('page')} ${this._historyPage} ${this._t('of')} ${historyTotalPages}</span>
-      <button class="pagination-btn hist-next" ${this._historyPage === historyTotalPages ? 'disabled' : ''}>${this._t('next')}</button>
-    </div>` : ''}
     </div>
     </div>
     `;
@@ -1239,7 +1165,6 @@
       btn.addEventListener("click", (e) => {
         const alertId = e.target.dataset.alertId;
         this._acknowledgedAlerts.add(alertId);
-        this._saveAlertData();
         this._update();
       });
     });
@@ -1305,36 +1230,7 @@
       });
     }
 
-    // Alert pagination
-    const alertPrev = this.shadowRoot.querySelector(".alert-prev");
-    if (alertPrev) {
-      alertPrev.addEventListener("click", () => {
-        if (this._alertPage > 1) { this._alertPage--; this._render(); }
-      });
-    }
-    const alertNext = this.shadowRoot.querySelector(".alert-next");
-    if (alertNext) {
-      alertNext.addEventListener("click", () => {
-        const tp = Math.ceil(this._alerts.length / this._alertPageSize) || 1;
-        if (this._alertPage < tp) { this._alertPage++; this._render(); }
-      });
-    }
-
-    // History pagination
-    const histPrev = this.shadowRoot.querySelector(".hist-prev");
-    if (histPrev) {
-      histPrev.addEventListener("click", () => {
-        if (this._historyPage > 1) { this._historyPage--; this._render(); }
-      });
-    }
-    const histNext = this.shadowRoot.querySelector(".hist-next");
-    if (histNext) {
-      histNext.addEventListener("click", () => {
-        const tp = Math.ceil(this._alertHistory.length / this._historyPageSize) || 1;
-        if (this._historyPage < tp) { this._historyPage++; this._render(); }
-      });
-    }
-        // Network pagination
+    // Network pagination
     const netPrev = this.shadowRoot.querySelector(".net-prev");
     if (netPrev) {
       netPrev.addEventListener("click", () => {
@@ -1353,38 +1249,43 @@
     }
   }
 
-    _drawSignalChart() {
+  _drawSignalChart() {
     const canvas = this.shadowRoot.querySelector("#signal-chart");
     if (!canvas) return;
 
-    // Ensure Chart.js is loaded
-    if (!window.Chart) {
-      this._loadChartJS().then(() => this._drawSignalChartWithChartJS());
-      return;
-    }
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
 
-    this._drawSignalChartWithChartJS();
-  }
-
-  _drawSignalChartWithChartJS() {
-    const canvas = this.shadowRoot.querySelector("#signal-chart");
-    if (!canvas) return;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
 
     const networks = this._getNetworkDevices();
     const allDevices = [];
     Object.keys(networks).forEach((protocol) => {
       networks[protocol].forEach((device) => {
-        allDevices.push({ rssi: device.rssi, protocol, name: device.name });
+        allDevices.push({ rssi: device.rssi, protocol });
       });
     });
 
-    if (allDevices.length === 0) {
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      return;
-    }
+    if (allDevices.length === 0) return;
 
-    // Create histogram bins
+    const width = rect.width;
+    const height = rect.height;
+    const padding = 40;
+    const chartWidth = width - padding * 2;
+    const chartHeight = height - padding * 2;
+
+    // Draw axes
+    ctx.strokeStyle = "#E2E8F0";
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+
+    // Create histogram
     const bins = 10;
     const histogram = new Array(bins).fill(0);
     const minRssi = -100;
@@ -1398,114 +1299,30 @@
       }
     });
 
-    // Prepare chart data
-    const labels = [];
-    for (let i = 0; i < bins; i++) {
-      const rssi = minRssi + i * binWidth;
-      labels.push(`${rssi.toFixed(0)}`);
-    }
+    const maxCount = Math.max(...histogram);
+    const barWidth = chartWidth / bins;
 
-    const chartConfig = {
-      type: "bar",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: this._t("signalStrengthDist"),
-            data: histogram,
-            backgroundColor: "#3B82F6",
-            borderColor: "#1E40AF",
-            borderWidth: 1,
-            borderRadius: 4,
-            barPercentage: 0.8,
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        indexAxis: "x",
-        plugins: {
-          legend: {
-            display: true,
-            labels: {
-              font: { family: "Inter, sans-serif", size: 12 },
-              color: "#64748B",
-              padding: 15
-            }
-          },
-          tooltip: {
-            backgroundColor: "rgba(30, 41, 59, 0.8)",
-            padding: 8,
-            titleFont: { family: "Inter, sans-serif", size: 12 },
-            bodyFont: { family: "Inter, sans-serif", size: 12 },
-            cornerRadius: 4,
-            displayColors: false
-          }
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              font: { family: "Inter, sans-serif", size: 11 },
-              color: "#64748B"
-            },
-            grid: {
-              color: "#E2E8F0",
-              drawBorder: false
-            }
-          },
-          x: {
-            ticks: {
-              font: { family: "Inter, sans-serif", size: 11 },
-              color: "#64748B"
-            },
-            grid: {
-              display: false
-            }
-          }
-        }
-      }
-    };
-
-    // Destroy existing chart if it exists
-    if (this._charts.signal) {
-      this._charts.signal.destroy();
-    }
-
-    // Create new chart
-    const ctx = canvas.getContext("2d");
-    this._charts.signal = new window.Chart(ctx, chartConfig);
-  }
-
-  _loadChartJS() {
-    // Return cached promise if already loading/loaded
-    if (this._chartJSPromise) {
-      return this._chartJSPromise;
-    }
-
-    // Check if already loaded
-    if (window.Chart) {
-      this._chartJSPromise = Promise.resolve();
-      return this._chartJSPromise;
-    }
-
-    // Load Chart.js from CDN
-    this._chartJSPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js";
-      script.async = true;
-      script.onload = () => {
-        // Give Chart.js a moment to initialize
-        setTimeout(() => resolve(), 100);
-      };
-      script.onerror = () => {
-        reject(new Error("Failed to load Chart.js"));
-      };
-      document.head.appendChild(script);
+    // Draw bars
+    ctx.fillStyle = "#3B82F6";
+    histogram.forEach((count, i) => {
+      const barHeight = (count / maxCount) * chartHeight;
+      const x = padding + i * barWidth;
+      const y = height - padding - barHeight;
+      ctx.fillRect(x, y, barWidth * 0.9, barHeight);
     });
 
-    return this._chartJSPromise;
+    // Draw labels
+    ctx.fillStyle = "#64748B";
+    ctx.font = "12px Inter, sans-serif";
+    ctx.textAlign = "center";
+    for (let i = 0; i <= bins; i++) {
+      const rssi = minRssi + i * binWidth;
+      const x = padding + i * barWidth;
+      ctx.fillText(rssi.toFixed(0), x, height - padding + 20);
+    }
+
+    ctx.textAlign = "left";
+    ctx.fillText(this._t('signalStrengthDist'), padding, padding - 10);
   }
 
   static getConfigElement() {
@@ -1522,16 +1339,6 @@
       offline_alert_minutes: 60,
     };
   }
-
-  disconnectedCallback() {
-    // Clean up Chart.js instances when component is removed
-    Object.keys(this._charts).forEach((key) => {
-      if (this._charts[key]) {
-        this._charts[key].destroy();
-        delete this._charts[key];
-      }
-    });
-  }
 }
 
 customElements.define("ha-device-health", HADeviceHealth);
@@ -1545,5 +1352,4 @@ if (!customElements.get('ha-tools-panel')) {
     _s.src = _baseUrl + 'ha-tools-panel.js';
     document.head.appendChild(_s);
   }
-
 }
