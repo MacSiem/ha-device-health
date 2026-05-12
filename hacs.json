@@ -1,5 +1,7 @@
 {
-    "name":  "Device Health",
-    "filename":  "ha-device-health.js",
-    "render_readme":  true
+  "name": "Device Health",
+  "filename": "ha-device-health.js",
+  "render_readme": true,
+  "content_in_root": true,
+  "homeassistant": "2024.1.0"
 }
