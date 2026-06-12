@@ -19,3 +19,4 @@ build/
 # Local
 .env
 .env.local
+codex-runs/
