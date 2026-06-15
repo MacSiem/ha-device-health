@@ -1,4 +1,4 @@
-/* HA Tools split — ha-device-health v4.2.1 (2026-06-12) — single-tool standalone repo */
+/* HA Tools split — ha-device-health v4.2.2 (2026-06-12) — single-tool standalone repo */
 (function() {
 'use strict';
 
@@ -16,6 +16,8 @@ if (typeof window !== 'undefined' && !window.HAToolsBentoCSS) {
    HA Tools — Bento Design System v2.0 (Premium)
    ═══════════════════════════════════════════════ */
 
+/* keyboard a11y */
+:focus-visible { outline: 2px solid var(--bento-primary, #6366f1); outline-offset: 2px; border-radius: 3px; }
 
 :host {
   /* Brand palette — diamond top, gradient-friendly */
@@ -2610,7 +2612,7 @@ class HADeviceHealth extends HTMLElement {
               </select>
             </div>
           </div>
-          <div class="stats">
+          <div class="stats" aria-live="polite" aria-atomic="true">
             ${this._t('activeAlerts')}: ${this._alerts.length}
           </div>
           ${this._renderBackgroundAlertsSection()}
