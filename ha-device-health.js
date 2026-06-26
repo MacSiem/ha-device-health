@@ -1,4 +1,4 @@
-/* HA Tools split — ha-device-health v4.2.2 (2026-06-12) — single-tool standalone repo */
+/* HA Tools split — ha-device-health v4.2.3 (2026-06-12) — single-tool standalone repo */
 (function() {
 'use strict';
 
@@ -958,6 +958,17 @@ class HADeviceHealth extends HTMLElement {
     return devices.length > 0 ? devices : this._getDemoDevices();
   }
 
+  _isBatteryLevelEntity(entityId, state) {
+    if (!state || (!entityId.includes("_battery") && !entityId.includes("battery_level"))) return false;
+    const attrs = state.attributes || {};
+    // Only count a battery LEVEL when it is a percentage: device_class "battery"
+    // or unit "%". Excludes Battery+ / Battery Notes helper entities such as
+    // *_battery_type or *_battery_quantity (counts/labels, not a % level). Fixes #1.
+    if (attrs.device_class !== "battery" && attrs.unit_of_measurement !== "%") return false;
+    const level = parseFloat(state.state);
+    return Number.isFinite(level) && level >= 0 && level <= 100;
+  }
+
   _getBatteryDevices() {
     const batteries = [];
 
@@ -968,20 +979,16 @@ class HADeviceHealth extends HTMLElement {
     const states = this._hass.states;
 
     Object.keys(states).forEach((entityId) => {
-      if (entityId.includes("_battery") || entityId.includes("battery_level")) {
-        const state = states[entityId];
-        const level = parseInt(state.state);
-
-        if (!isNaN(level)) {
-          batteries.push({
-            id: entityId,
-            name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),
-            level: level,
-            lastChanged: state.last_changed,
-            device: this._sanitize(state.attributes.device_name || this._extractDeviceName(entityId)),
-          });
-        }
-      }
+      const state = states[entityId];
+      if (!this._isBatteryLevelEntity(entityId, state)) return;
+      const level = parseInt(state.state);
+      batteries.push({
+        id: entityId,
+        name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),
+        level: level,
+        lastChanged: state.last_changed,
+        device: this._sanitize(state.attributes.device_name || this._extractDeviceName(entityId)),
+      });
     });
 
     return batteries.length > 0 ? batteries : this._getDemoBatteries();
@@ -1221,9 +1228,7 @@ class HADeviceHealth extends HTMLElement {
   _getDetectedBatteryEntityIds() {
     if (!this._hass || !this._hass.states) return [];
     return Object.keys(this._hass.states).filter((entityId) => {
-      if (!entityId.includes("_battery") && !entityId.includes("battery_level")) return false;
-      const level = parseFloat(this._hass.states[entityId]?.state);
-      return Number.isFinite(level);
+      return this._isBatteryLevelEntity(entityId, this._hass.states[entityId]);
     });
   }
 

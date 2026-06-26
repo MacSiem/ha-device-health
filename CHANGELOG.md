@@ -1,5 +1,10 @@
 # Changelog — Device Health
 
+## [4.2.3] - 2026-06-26
+
+### Fixed
+- Battery Health no longer counts Battery+ / Battery Notes helper entities (e.g. *_battery_type, *_battery_quantity) as battery levels. A sensor counts as a battery level only when device_class is "battery" or unit is "%" and the value is 0-100. Fixes #1 (devices wrongly shown at ~2%).
+
 ## [4.2.2] - 2026-06-15
 
 - Theme: dark/light now follows the active Home Assistant theme (luminance of --card-background-color) instead of OS prefers-color-scheme.
