@@ -1,5 +1,10 @@
 # Changelog — Device Health
 
+## [4.2.4] - 2026-07-12
+
+### Fixed
+- `_drawSignalChart` now guards against a null 2D canvas context (`getContext("2d")` can return null); previously only a missing canvas element was handled.
+
 ## [4.2.3] - 2026-06-26
 
 ### Fixed

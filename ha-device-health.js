@@ -1,4 +1,4 @@
-/* HA Tools split — ha-device-health v4.2.3 (2026-06-12) — single-tool standalone repo */
+/* HA Tools split — ha-device-health v4.2.4 (2026-07-12) — single-tool standalone repo */
 (function() {
 'use strict';
 
@@ -2988,6 +2988,7 @@ ${style}
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
