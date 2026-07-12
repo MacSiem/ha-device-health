@@ -1,72 +1,72 @@
-# 🏥 Device Health
+# HA Device Health
 
 ![Preview](banner.png)
 
-Monitor device battery, signal and connectivity health.
+Monitor the health of your Home Assistant devices from one Lovelace card:
+battery levels, availability and alerts. Zero configuration — add the card and it
+scans your entities automatically.
 
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.1+-blue.svg?logo=homeassistant)](https://www.home-assistant.io/) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Version](https://img.shields.io/github/v/release/MacSiem/ha-device-health)](https://github.com/MacSiem/ha-device-health/releases)
+[![Version](https://img.shields.io/github/v/release/MacSiem/ha-device-health)](https://github.com/MacSiem/ha-device-health/releases) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Screenshots
+## How it works
 
-![Screenshot](screenshot.png)
+**Short version: it works automatically.** The card reads your existing entities —
+no extra integration, no YAML:
 
-> Part of the [HA Tools](https://github.com/MacSiem) ecosystem — split into individual HACS-installable plugins.
+1. **Batteries.** An entity counts as a battery *level* only when it has
+   `device_class: battery` or a `%` unit **and** a numeric 0–100 state. Helper
+   entities from Battery+/Battery Notes (like `*_battery_type` or
+   `*_battery_quantity`) are excluded, so counts and labels never pollute the list
+   (fixed in v4.2.3).
+2. **Availability.** Devices with `unavailable`/`unknown` entities are surfaced so
+   you spot dead sensors and dropped integrations quickly.
+3. **Alerts.** Threshold-based alerts (e.g. low battery) with a history view.
 
-## Installation (HACS)
+### What is automatic vs. manual
 
-**Device Health is in the HACS default store** — no custom repository needed:
+| Automatic | Manual (optional) |
+|---|---|
+| Discovering batteries and devices | Adjusting alert thresholds |
+| Filtering out Battery+ helper entities | Dismissing/reviewing alerts |
+| Availability monitoring | — |
 
-1. Open **HACS** in Home Assistant
-2. Search for **Device Health**
-3. Install and refresh your browser
+## Installation
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MacSiem&repository=ha-device-health&category=plugin)
+1. Open HACS → Custom repositories.
+2. Add `https://github.com/MacSiem/ha-device-health` as category **Dashboard**
+   (Lovelace plugin).
+3. Install **HA Device Health** and reload your browser.
 
-## Usage
-
-### Lovelace card
+## Quick start
 
 ```yaml
 type: custom:ha-device-health
 ```
 
-### Optional sidebar panel (`configuration.yaml`)
+That's it — no options are required.
 
-```yaml
-panel_custom:
-  - name: ha-device-health
-    sidebar_title: Device Health
-    sidebar_icon: mdi:home-assistant
-    url_path: ha-device-health
-    js_url: /local/community/ha-device-health/ha-device-health.js
-    embed_iframe: false
-    config: {}
-```
+## FAQ
 
-After restart, **Device Health** appears in the HA sidebar.
+**Do I have to configure anything?**
+No. The card discovers batteries and devices from your existing entities.
 
-## Features
+**Why doesn't my battery show up?**
+It needs `device_class: battery` or a `%` unit and a numeric 0–100 state. Text
+states ("low"/"ok") and count entities are intentionally excluded.
 
-- Monitor device battery, signal and connectivity health.
-- Bundled Bento Design System (light + dark mode, mobile-friendly)
-- Self-contained — no shared HA Tools dependency
-- Tool settings and dismissed-banner state are cached in browser `localStorage`
-## Privacy
+**Does this send data anywhere?**
+No. Everything runs locally in your browser against your Home Assistant instance —
+no telemetry, no CDN assets.
 
-- No telemetry, no analytics, no tracking
-- No external network calls, no CDN-hosted assets (system fonts only)
-- No data leaves your device (no external network calls)
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
 
 ## Support
 
-If this tool makes your Home Assistant life easier, consider supporting development:
-
-- [☕ Buy Me a Coffee](https://buymeacoffee.com/macsiem)
-- [💳 PayPal](https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W)
+- [Buy Me a Coffee](https://buymeacoffee.com/macsiem)
+- [PayPal](https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
