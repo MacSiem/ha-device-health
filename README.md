@@ -30,6 +30,15 @@ no extra integration, no YAML:
 | Filtering out Battery+ helper entities | Dismissing/reviewing alerts |
 | Availability monitoring | — |
 
+## Screenshots
+
+| Light | Dark |
+|---|---|
+| ![Batteries tab, light theme](docs/screenshots/card-batteries-light.png) | ![Batteries tab, dark theme](docs/screenshots/card-batteries-dark.png) |
+
+*The Batteries tab: levels sorted worst-first with a needs-attention summary.
+Dark mode follows your Home Assistant theme automatically.*
+
 ## Installation
 
 1. Open HACS → Custom repositories.
