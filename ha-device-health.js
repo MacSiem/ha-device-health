@@ -507,15 +507,8 @@ const _LOCAL_INTRO = {
   steps: ["List devices grouped by health (OK / Warning / Critical).","Filter by low battery (<20%) or weak signal.","Click device for model / manufacturer / last seen."]
 };
 const _LOCAL_DONATE_HTML = ''
-  + '<div class="donate-section" data-source="ha-device-health">'
-  + '  <div class="donate-text">'
-  + '    <h3>❤️ Support HA Tools Development</h3>'
-  + '    <p>If this tool makes your Home Assistant life easier, consider supporting the project. Every coffee motivates further development!</p>'
-  + '  </div>'
-  + '  <div class="donate-buttons">'
-  + '    <a class="donate-btn coffee" href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a>'
-  + '    <a class="donate-btn paypal" href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a>'
-  + '  </div>'
+  + '<div class="donate-section" data-source="ha-device-health" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;">'
+  + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">Optional support for HA Tools</a>'
   + '</div>';
 function _localIntroDismissed() {
   try { return localStorage.getItem(_LOCAL_INTRO_KEY) === '1'; } catch(e) { return false; }
@@ -548,6 +541,10 @@ class HADeviceHealth extends HTMLElement {
     this._toolId = this.tagName.toLowerCase().replace('ha-', '');
     this._config = {};
     this._hass = null;
+    this._entityRegistry = new Map();
+    this._deviceRegistry = new Map();
+    this._registryLoading = null;
+    this._registryLoadedAt = 0;
     this._activeTab = "devices";
     this._deviceFilter = "all";
     this._searchQuery = "";
@@ -597,14 +594,17 @@ class HADeviceHealth extends HTMLElement {
         online: "Online",
         offline: "Offline",
         unavailable: "Unavailable",
+        unknown: "No entity state",
         toggleGrouping: "Toggle Grouping",
         totalDevices: "Total Devices",
+        unlinkedEntities: "Entities without a registered device",
         availability: "Availability",
         name: "Name",
         type: "Type",
         status: "Status",
-        lastSeen: "Last Seen",
-        uptime: "Uptime",
+        lastSeen: "Last state change",
+        uptime: "Since change",
+        noNetworkEvidence: "No connection evidence in the device registry.",
         levelWorstFirst: "Level (Worst First)",
         batteryHealthSummary: "Battery Health Summary",
         deviceNeedAttention: "device(s) need attention",
@@ -632,14 +632,17 @@ class HADeviceHealth extends HTMLElement {
         online: "Online",
         offline: "Offline",
         unavailable: "Niedostępne",
+        unknown: "Brak stanu encji",
         toggleGrouping: "Przełącz Grupowanie",
         totalDevices: "Razem Urządzeń",
+        unlinkedEntities: "Encje bez zarejestrowanego urządzenia",
         availability: "Dostępność",
         name: "Nazwa",
         type: "Typ",
         status: "Status",
-        lastSeen: "Ostatnio Widziane",
-        uptime: "Czas Pracy",
+        lastSeen: "Ostatnia zmiana stanu",
+        uptime: "Od zmiany",
+        noNetworkEvidence: "Brak danych o połączeniu w rejestrze urządzeń.",
         levelWorstFirst: "Poziom (Najgorsze Pierwsze)",
         batteryHealthSummary: "Podsumowanie Zdrowia Baterii",
         deviceNeedAttention: "urządzenie(ń) wymaga uwagi",
@@ -714,6 +717,7 @@ class HADeviceHealth extends HTMLElement {
     } catch (e) {}
     if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
     this._hass = hass;
+    this._loadRegistries();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
     if (this._firstRender) {
       this._firstRender = false;
@@ -755,58 +759,61 @@ class HADeviceHealth extends HTMLElement {
 
   _sanitize(s) { try { return decodeURIComponent(escape(s)); } catch(e) { return s; } }
 
+  _loadRegistries() {
+    if (!this._hass?.callWS || this._registryLoading || Date.now() - this._registryLoadedAt < 300000) return;
+    this._registryLoading = Promise.all([
+      this._hass.callWS({ type: 'config/entity_registry/list' }),
+      this._hass.callWS({ type: 'config/device_registry/list' })
+    ]).then(([entities, devices]) => {
+      this._entityRegistry = new Map(entities.map(entry => [entry.entity_id, entry]));
+      this._deviceRegistry = new Map(devices.map(entry => [entry.id, entry]));
+      this._registryLoadedAt = Date.now();
+      if (this.isConnected) { this._generateAlerts(); this._render(); }
+    }).catch(error => {
+      console.warn('[ha-device-health] Registry lookup failed', error);
+      this._registryLoadedAt = Date.now();
+    }).finally(() => { this._registryLoading = null; });
+  }
+
   _update() {
     this._generateAlerts();
     this._render();
   }
 
   _getDevices() {
-    const devices = [];
-
-    if (!this._hass || !this._hass.states) {
-      return this._getDemoDevices();
+    if (!this._hass?.states) return [];
+    const statesByDevice = new Map();
+    for (const [entityId, entry] of this._entityRegistry) {
+      if (!entry.device_id || !this._hass.states[entityId]) continue;
+      if (!statesByDevice.has(entry.device_id)) statesByDevice.set(entry.device_id, []);
+      statesByDevice.get(entry.device_id).push(this._hass.states[entityId]);
     }
-
-    const states = this._hass.states;
-    const seenEntities = new Set();
-
-    // Collect device_tracker entities
-    Object.keys(states).forEach((entityId) => {
-      if (entityId.startsWith("device_tracker.")) {
-        const state = states[entityId];
-        seenEntities.add(entityId);
-        devices.push({
-          id: entityId,
-          name: this._formatEntityName(entityId),
-          type: "device_tracker",
-          status: state.state === "home" ? "online" : state.state === "not_home" ? "offline" : "unavailable",
-          lastSeen: state.attributes.last_seen || state.last_changed,
-          uptime: this._calculateUptime(state.last_changed),
-          domain: "device_tracker",
-        });
-      }
+    return [...this._deviceRegistry.values()].map(device => {
+      const states = statesByDevice.get(device.id) || [];
+      const available = states.filter(state => state.state !== 'unavailable' && state.state !== 'unknown');
+      const disconnected = states.some(state =>
+        state.entity_id?.startsWith('binary_sensor.') &&
+        state.attributes?.device_class === 'connectivity' && state.state === 'off'
+      );
+      const latest = states.map(state => state.last_changed).filter(Boolean).sort().at(-1);
+      return {
+        id: device.id,
+        name: this._sanitize(device.name_by_user || device.name || device.id),
+        type: device.model || 'device',
+        status: !states.length ? 'unknown' : !available.length ? 'unavailable' : disconnected ? 'offline' : 'online',
+        lastSeen: latest || null,
+        uptime: latest ? this._calculateUptime(latest) : '',
+        domain: 'device',
+      };
     });
+  }
 
-    // Collect switch/light/sensor devices
-    Object.keys(states).forEach((entityId) => {
-      const domain = entityId.split(".")[0];
-      if (["switch", "light", "climate", "sensor"].includes(domain) && !entityId.includes("_battery") && !entityId.includes("_signal")) {
-        const state = states[entityId];
-        seenEntities.add(entityId);
-        const isAvailable = state.state !== "unavailable" && state.state !== "unknown";
-        devices.push({
-          id: entityId,
-          name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),
-          type: domain,
-          status: !isAvailable ? "unavailable" : state.state === "off" || state.state === "unknown" ? "offline" : "online",
-          lastSeen: state.last_changed,
-          uptime: this._calculateUptime(state.last_changed),
-          domain: domain,
-        });
-      }
-    });
-
-    return devices.length > 0 ? devices : this._getDemoDevices();
+  _unlinkedEntityCount() {
+    if (!this._hass?.states || (!this._entityRegistry.size && !this._deviceRegistry.size)) return null;
+    return Object.keys(this._hass.states).filter(entityId => {
+      const deviceId = this._entityRegistry.get(entityId)?.device_id;
+      return !deviceId || !this._deviceRegistry.has(deviceId);
+    }).length;
   }
 
   _isBatteryLevelEntity(entityId, state) {
@@ -824,7 +831,7 @@ class HADeviceHealth extends HTMLElement {
     const batteries = [];
 
     if (!this._hass || !this._hass.states) {
-      return this._getDemoBatteries();
+      return [];
     }
 
     const states = this._hass.states;
@@ -842,146 +849,50 @@ class HADeviceHealth extends HTMLElement {
       });
     });
 
-    return batteries.length > 0 ? batteries : this._getDemoBatteries();
+    return batteries;
   }
 
   _getNetworkDevices() {
     const networks = {};
-
-    if (!this._hass || !this._hass.states) {
-      return this._getDemoNetworks();
+    if (!this._hass?.states) return networks;
+    const statesByDevice = new Map();
+    for (const [entityId, entry] of this._entityRegistry) {
+      const state = this._hass.states[entityId];
+      if (!entry.device_id || !state) continue;
+      if (!statesByDevice.has(entry.device_id)) statesByDevice.set(entry.device_id, []);
+      statesByDevice.get(entry.device_id).push(state);
     }
-
-    const states = this._hass.states;
-
-    // Method 1: Find entities with signal/rssi in entity ID
-    Object.keys(states).forEach((entityId) => {
-      if (entityId.includes("_signal") || entityId.includes("signal_strength") || entityId.includes("rssi")) {
-        const state = states[entityId];
-        const rssi = parseInt(state.state);
-        if (!isNaN(rssi)) {
-          const protocol = this._detectProtocol(entityId);
-          if (!networks[protocol]) networks[protocol] = [];
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),
-            rssi: rssi,
-            device: this._sanitize(state.attributes.device_name || this._extractDeviceName(entityId)),
-          });
-        }
-      }
-    });
-
-    // Method 2: Find entities with network ATTRIBUTES (mac, ip, ssid, rssi)
-    Object.entries(states).forEach(([entityId, state]) => {
-      const a = state.attributes || {};
-      const mac = a.mac || a.mac_address || a.host_mac || '';
-      const ip = a.ip || a.ip_address || a.local_ip || '';
-      const ssid = a.essid || a.ssid || a.wifi_name || '';
-      const rssi = a.rssi || a.signal_strength || a.wifi_signal;
-      const connType = a.connection_type || (a.is_wired ? 'ethernet' : (ssid ? 'wifi' : ''));
-
-      if (mac || ip || ssid || (rssi !== undefined && rssi !== null)) {
-        const protocol = connType === 'ethernet' ? 'Ethernet' : (ssid ? 'WiFi' : this._detectProtocol(entityId));
-        if (!networks[protocol]) networks[protocol] = [];
-        // Avoid duplicates
-        if (!networks[protocol].find(d => d.id === entityId)) {
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(a.friendly_name || this._formatEntityName(entityId)),
-            rssi: typeof rssi === 'number' ? rssi : null,
-            device: this._sanitize(a.device_name || a.friendly_name || this._extractDeviceName(entityId)),
-            mac: mac,
-            ip: ip,
-            ssid: ssid,
-            connectionType: connType
-          });
-        }
-      }
-    });
-
-    // Method 3: Add device_tracker entities with source_type 'router' (network-connected devices)
-    Object.entries(states).forEach(([entityId, state]) => {
-      if (entityId.startsWith('device_tracker.') && state.attributes.source_type === 'router') {
-        const a = state.attributes;
-        const protocol = 'WiFi';
-        if (!networks[protocol]) networks[protocol] = [];
-        if (!networks[protocol].find(d => d.id === entityId)) {
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(a.friendly_name || this._formatEntityName(entityId)),
-            rssi: a.rssi || null,
-            device: this._sanitize(a.friendly_name || this._extractDeviceName(entityId)),
-            mac: a.mac || '',
-            ip: a.ip || '',
-            ssid: a.essid || a.ssid || '',
-            connectionType: 'wifi'
-          });
-        }
-      }
-    });
-
-    // Method 4: Include ALL device_tracker entities (they represent network devices)
-    Object.entries(states).forEach(([entityId, state]) => {
-      if (entityId.startsWith('device_tracker.')) {
-        const a = state.attributes || {};
-        const protocol = a.source_type === 'router' ? 'WiFi' :
-                         a.source_type === 'bluetooth' ? 'Bluetooth' :
-                         a.source_type === 'bluetooth_le' ? 'BLE' : 'Network';
-        if (!networks[protocol]) networks[protocol] = [];
-        if (!networks[protocol].find(d => d.id === entityId)) {
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(a.friendly_name || this._formatEntityName(entityId)),
-            rssi: typeof a.rssi === 'number' ? a.rssi : null,
-            device: this._sanitize(a.friendly_name || this._extractDeviceName(entityId)),
-            mac: a.mac || a.mac_address || '',
-            ip: a.ip || a.ip_address || '',
-            ssid: a.essid || a.ssid || '',
-            connectionType: a.source_type || ''
-          });
-        }
-      }
-    });
-
-    return Object.keys(networks).length > 0 ? networks : this._getDemoNetworks();
-  }
-
-  _getDemoDevices() {
-    return [
-      { id: "device_tracker.phone", name: "Mobile Phone", type: "device_tracker", status: "online", lastSeen: new Date(Date.now() - 300000).toISOString(), uptime: "5 days", domain: "device_tracker" },
-      { id: "light.living_room", name: "Living Room Light", type: "light", status: "online", lastSeen: new Date(Date.now() - 60000).toISOString(), uptime: "30 days", domain: "light" },
-      { id: "switch.kitchen", name: "Kitchen Switch", type: "switch", status: "online", lastSeen: new Date(Date.now() - 120000).toISOString(), uptime: "30 days", domain: "switch" },
-      { id: "climate.bedroom", name: "Bedroom Thermostat", type: "climate", status: "offline", lastSeen: new Date(Date.now() - 3600000).toISOString(), uptime: "15 days", domain: "climate" },
-      { id: "sensor.garage", name: "Garage Sensor", type: "sensor", status: "unavailable", lastSeen: new Date(Date.now() - 86400000).toISOString(), uptime: "2 days", domain: "sensor" },
-    ];
-  }
-
-  _getDemoBatteries() {
-    return [
-      { id: "sensor.phone_battery", name: "Mobile Phone Battery", level: 78, lastChanged: new Date(Date.now() - 300000).toISOString(), device: "Mobile Phone" },
-      { id: "sensor.watch_battery", name: "Smart Watch Battery", level: 45, lastChanged: new Date(Date.now() - 7200000).toISOString(), device: "Smart Watch" },
-      { id: "sensor.remote_battery", name: "Remote Control Battery", level: 22, lastChanged: new Date(Date.now() - 86400000).toISOString(), device: "Remote Control" },
-      { id: "sensor.sensor1_battery", name: "Hallway Sensor Battery", level: 8, lastChanged: new Date(Date.now() - 172800000).toISOString(), device: "Hallway Sensor" },
-      { id: "sensor.keypad_battery", name: "Door Keypad Battery", level: 35, lastChanged: new Date(Date.now() - 3600000).toISOString(), device: "Door Keypad" },
-    ];
-  }
-
-  _getDemoNetworks() {
-    return {
-      "WiFi": [
-        { id: "sensor.phone_signal", name: "Mobile Phone", rssi: -45, device: "Mobile Phone" },
-        { id: "sensor.laptop_signal", name: "Laptop", rssi: -62, device: "Laptop" },
-        { id: "sensor.tv_signal", name: "Smart TV", rssi: -75, device: "Smart TV" },
-      ],
-      "Zigbee": [
-        { id: "sensor.light1_signal", name: "Bulb 1", rssi: -68, device: "Bulb 1" },
-        { id: "sensor.light2_signal", name: "Bulb 2", rssi: -72, device: "Bulb 2" },
-      ],
-      "Z-Wave": [
-        { id: "sensor.lock_signal", name: "Door Lock", rssi: -58, device: "Door Lock" },
-      ],
-    };
+    for (const device of this._deviceRegistry.values()) {
+      const states = statesByDevice.get(device.id) || [];
+      const connections = Array.isArray(device.connections) ? device.connections : [];
+      const types = new Set(connections.map(connection => connection[0]));
+      const attrs = states.map(state => state.attributes || {});
+      const sourceTypes = new Set(attrs.map(a => a.source_type));
+      const explicitType = attrs.map(a => String(a.connection_type || '').toLowerCase()).find(Boolean);
+      const ssid = attrs.map(a => a.essid || a.ssid || a.wifi_name).find(Boolean) || '';
+      const mac = connections.find(connection => connection[0] === 'mac')?.[1] || '';
+      const ip = attrs.map(a => a.ip || a.ip_address || a.local_ip).find(Boolean) || '';
+      let protocol = null;
+      if (sourceTypes.has('bluetooth_le') || explicitType === 'ble') protocol = 'BLE';
+      else if (types.has('bluetooth') || sourceTypes.has('bluetooth')) protocol = 'Bluetooth';
+      else if (types.has('zigbee') || explicitType === 'zigbee') protocol = 'Zigbee';
+      else if (explicitType === 'zwave' || explicitType === 'z-wave') protocol = 'Z-Wave';
+      else if (explicitType === 'ethernet' || attrs.some(a => a.is_wired === true)) protocol = 'Ethernet';
+      else if (explicitType === 'wifi' || ssid) protocol = 'WiFi';
+      else if (mac || ip || sourceTypes.has('router')) protocol = 'Other';
+      if (!protocol) continue;
+      const signal = states.find(state => /signal|rssi/i.test(state.entity_id || ''));
+      const value = signal ? Number(signal.state) : Number(attrs.map(a => a.rssi ?? a.signal_strength).find(v => v != null));
+      if (!networks[protocol]) networks[protocol] = [];
+      networks[protocol].push({
+        id: device.id,
+        name: this._sanitize(device.name_by_user || device.name || device.id),
+        device: this._sanitize(device.name_by_user || device.name || device.id),
+        rssi: Number.isFinite(value) && value < 0 ? value : null,
+        mac, ip, ssid, connectionType: protocol
+      });
+    }
+    return networks;
   }
 
   _generateAlerts() {
@@ -1045,12 +956,6 @@ class HADeviceHealth extends HTMLElement {
   _extractDeviceName(entityId) {
     const parts = entityId.split(".")[1].replace(/_battery|_signal|_battery_level|_rssi/g, "").split("_");
     return parts.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-  }
-
-  _detectProtocol(entityId) {
-    if (entityId.includes("zigbee")) return "Zigbee";
-    if (entityId.includes("zwave")) return "Z-Wave";
-    return "WiFi";
   }
 
   _getStatusColor(status) {
@@ -2198,7 +2103,9 @@ class HADeviceHealth extends HTMLElement {
     const batteries = this._getBatteryDevices();
     const networks = this._getNetworkDevices();
     const online = devices.filter((d) => d.status === "online").length;
-    const availability = ((online / devices.length) * 100).toFixed(1);
+    const unlinkedEntities = this._unlinkedEntityCount();
+    const observed = devices.filter(device => device.status !== 'unknown').length;
+    const availability = observed ? `${((online / observed) * 100).toFixed(1)}%` : 'N/A';
 
     const batteryNeedingAttention = batteries.filter((b) => b.level < this._config.battery_warning).length;
 
@@ -2243,6 +2150,7 @@ class HADeviceHealth extends HTMLElement {
                 <option value="online" ${this._deviceFilter === 'online' ? 'selected' : ''}>${this._t('online')}</option>
                 <option value="offline" ${this._deviceFilter === 'offline' ? 'selected' : ''}>${this._t('offline')}</option>
                 <option value="unavailable" ${this._deviceFilter === 'unavailable' ? 'selected' : ''}>${this._t('unavailable')}</option>
+                <option value="unknown" ${this._deviceFilter === 'unknown' ? 'selected' : ''}>${this._t('unknown')}</option>
               </select>
             </div>
             <div class="control-group">
@@ -2256,7 +2164,7 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats">
-            ${this._t('totalDevices')}: ${devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}%
+            ${this._t('totalDevices')}: ${devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}${unlinkedEntities === null ? '' : ` | ${this._t('unlinkedEntities')}: ${unlinkedEntities}`}
           </div>
           <div class="table-wrapper">
           <table class="device-table">
@@ -2402,6 +2310,7 @@ class HADeviceHealth extends HTMLElement {
           </div>
           <canvas id="signal-chart" width="400" height="250"></canvas>
       `;
+      if (!allNetDevices.length) html += `<div class="empty-state">${this._t('noNetworkEvidence')}</div>`;
 
       // Group paginated devices by protocol for display
       let lastProto = '';
@@ -2656,8 +2565,7 @@ ${style}
     // Update device count if visible
     const deviceCount = this.shadowRoot.querySelector('[data-device-count]');
     if (deviceCount) {
-      const devices = Object.values(this._hass.states).filter(s => s.entity_id.includes('device_tracker'));
-      deviceCount.textContent = devices.length;
+      deviceCount.textContent = this._getDevices().length;
     }
 
     // For now, if active tab content changes significantly, re-render

@@ -1,3 +1,10 @@
+## Unreleased
+
+- Classify network devices using HA Device/Entity Registry evidence and explicit SSID/connection attributes. Bluetooth/BLE stays separate; MAC/IP alone is Other.
+- Count registered devices once, show unlinked entity states separately, and stop showing demo devices when HA has no readings.
+- Mark devices with no entity states unknown; only an explicit connectivity sensor can mark a device offline.
+- Replace the large donation panel with a compact optional link after user feedback in issue #2.
+
 ## 4.2.8 (2026-08-28)
 
 - Isolation: Bento CSS is component-local and cannot be captured from `window.HAToolsBentoCSS` by load order.
