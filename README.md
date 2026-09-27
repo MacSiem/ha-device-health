@@ -41,8 +41,8 @@ registries through your Home Assistant connection — no extra integration or YA
 |---|---|
 | ![Batteries tab, light theme](docs/screenshots/card-batteries-light.png) | ![Batteries tab, dark theme](docs/screenshots/card-batteries-dark.png) |
 
-*The Batteries tab: levels sorted worst-first with a needs-attention summary.
-Dark mode follows your Home Assistant theme automatically.*
+*The Batteries tab with synthetic sensor names and levels, sorted worst-first
+with a needs-attention summary. Dark mode follows your Home Assistant theme.*
 
 ## Installation
 
