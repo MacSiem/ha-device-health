@@ -507,9 +507,12 @@ const _LOCAL_INTRO = {
   steps: ["List devices grouped by health (OK / Warning / Critical).","Filter by low battery (<20%) or weak signal.","Click device for model / manufacturer / last seen."]
 };
 const _LOCAL_DONATE_HTML = ''
-  + '<div class="donate-section" data-source="ha-device-health" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;">'
-  + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">Optional support for HA Tools</a>'
+  + '<div class="donate-section" data-source="own-card" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+  + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">Optional support for HA Tools</a><button type="button" class="support-dismiss" aria-label="Dismiss support link" style="margin-left:auto">×</button>'
   + '</div>';
+const _LOCAL_SUPPORT_KEY = 'ha-device-health-support-dismissed';
+function _localSupportDismissed() { try { return localStorage.getItem(_LOCAL_SUPPORT_KEY) === '1'; } catch (_) { return false; } }
+function _bindLocalSupportDismiss(root) { root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(_LOCAL_SUPPORT_KEY, '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); }); }
 function _localIntroDismissed() {
   try { return localStorage.getItem(_LOCAL_INTRO_KEY) === '1'; } catch(e) { return false; }
 }
@@ -684,6 +687,7 @@ class HADeviceHealth extends HTMLElement {
         if (_s._activeTab) this._activeTab = _s._activeTab;
       }
     } catch(e) { console.debug('[ha-device-health] caught:', e); }
+    if (this._hass) this._render();
   }
 
   _computeStateHash() {
@@ -2522,8 +2526,9 @@ ${style}
           .stat-val, .kpi-val, .metric-val { font-size: 16px; }
         }
 
-</style>${_renderLocalIntro()}${html}${_LOCAL_DONATE_HTML}`
+</style>${_renderLocalIntro()}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _LOCAL_DONATE_HTML : ''}`
     _bindLocalIntroDismiss(this.shadowRoot);
+    _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
     this._drawSignalChart();
 
