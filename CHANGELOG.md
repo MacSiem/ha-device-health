@@ -1,4 +1,4 @@
-## Unreleased
+## 4.2.9 (2026-09-29)
 
 - Classify network devices using HA Device/Entity Registry evidence and explicit SSID/connection attributes. Bluetooth/BLE stays separate; MAC/IP alone is Other.
 - Count registered devices once, show unlinked entity states separately, and stop showing demo devices when HA has no readings.
