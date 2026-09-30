@@ -2372,7 +2372,7 @@ class HADeviceHealth extends HTMLElement {
         <div class="tab-content active">
           <div class="controls">
             <div class="control-group">
-              <span style="font-size: 13px; color: var(--ts);">${this._t('pageSize')}:</span>
+              <span style="font-size: 13px; color: var(--ts);">${this._t('itemsPerPage')}:</span>
               <select class="page-size-selector" data-tab="alerts">
                 <option value="10" ${this._alertsPageSize === 10 ? 'selected' : ''}>10</option>
                 <option value="15" ${this._alertsPageSize === 15 ? 'selected' : ''}>15</option>

@@ -3,6 +3,7 @@
 - Classify network devices using HA Device/Entity Registry evidence and explicit SSID/connection attributes. Bluetooth/BLE stays separate; MAC/IP alone is Other.
 - Count registered devices once, show unlinked entity states separately, and stop showing demo devices when HA has no readings.
 - Mark devices with no entity states unknown; only an explicit connectivity sensor can mark a device offline. Show a dash for an absent or invalid last-change date instead of the Unix epoch.
+- Translate the alert page-size label using the existing English/Polish pagination strings.
 - Replace the large donation panel with a compact optional link after user feedback in issue #2.
 
 ## 4.2.8 (2026-08-28)
