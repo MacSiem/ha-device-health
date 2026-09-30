@@ -1547,9 +1547,10 @@ class HADeviceHealth extends HTMLElement {
         letter-spacing: 0.3px;
       }
 
-      .status-online { background: var(--sc); }
-      .status-offline { background: var(--ec); }
-      .status-unavailable { background: #94A3B8; }
+      .status-online { background: #047857; }
+      .status-offline { background: #B91C1C; }
+      .status-unavailable { background: #64748B; }
+      .status-unknown { background: #475569; }
 
       .table-wrapper {
         overflow-x: auto;
