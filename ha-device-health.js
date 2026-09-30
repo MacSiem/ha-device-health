@@ -2189,7 +2189,7 @@ class HADeviceHealth extends HTMLElement {
                       <td>${_esc(device.name)}</td>
                       <td>${_esc(device.type)}</td>
                       <td><span class="status-badge status-${_esc(device.status)}">${_esc(device.status.toUpperCase())}</span></td>
-                      <td>${new Date(device.lastSeen).toLocaleString()}</td>
+                      <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString() : "—"}</td>
                       <td>${_esc(device.uptime)}</td>
                     </tr>`
                 )
