@@ -90,3 +90,9 @@ The optional in-card support link is shown only to administrators. Dismiss it in
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Privacy and data
+
+The card reads Home Assistant states and registry metadata to group devices and show battery and availability information. Device and entity labels can identify your home. Remove those labels and identifiers from screenshots or bug reports.
+
+See [SECURITY.md](SECURITY.md) for safe vulnerability reporting and [NOTICE](NOTICE) for licensing notices.
