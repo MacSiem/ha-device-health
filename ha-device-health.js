@@ -542,7 +542,7 @@ class HADeviceHealth extends HTMLElement {
     this._lang = (navigator.language || '').startsWith('pl') ? 'pl' : 'en';
     this.attachShadow({ mode: "open" });
     this._toolId = this.tagName.toLowerCase().replace('ha-', '');
-    this._config = {};
+    this._config = HADeviceHealth.getStubConfig();
     this._hass = null;
     this._entityRegistry = new Map();
     this._deviceRegistry = new Map();
@@ -673,10 +673,7 @@ class HADeviceHealth extends HTMLElement {
 
   setConfig(config) {
     this._config = {
-      title: "Device Health",
-      battery_warning: 30,
-      battery_critical: 10,
-      offline_alert_minutes: 60,
+      ...HADeviceHealth.getStubConfig(),
       ...config,
     };
     // Load persisted UI state
