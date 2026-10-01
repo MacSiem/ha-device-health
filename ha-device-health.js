@@ -1186,7 +1186,7 @@ class HADeviceHealth extends HTMLElement {
             <div class="background-alerts-title">Background alerts (24/7)</div>
             <div class="background-alerts-note">Creates native Home Assistant automations so alerts keep working with this panel closed.</div>
           </div>
-          <button class="background-alerts-generate">Generate automations…</button>
+          ${this._hass?.user?.is_admin === true ? `<button class="background-alerts-generate">Generate automations…</button>` : ""}
         </div>
         <div class="background-alerts-status">
           <div><strong>Battery:</strong> ${_esc(batteryStatus)}</div>
@@ -1198,7 +1198,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _renderBackgroundAutomationDialog() {
-    if (!this._backgroundAlertDialog) return "";
+    if (!this._backgroundAlertDialog || this._hass?.user?.is_admin !== true) return "";
     const dialog = this._backgroundAlertDialog;
     const battery = dialog.automations?.[0];
     const offline = dialog.automations?.[1];
@@ -1265,6 +1265,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _openBackgroundAutomationDialog() {
+    if (this._hass?.user?.is_admin !== true) return;
     try {
       if (!this._hass || !this._hass.states) {
         this._backgroundAlertDialog = {
@@ -1288,7 +1289,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   async _createBackgroundAlertAutomations() {
-    if (!this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
+    if (this._hass?.user?.is_admin !== true || !this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
 
     const dialog = {
       ...this._backgroundAlertDialog,

@@ -1,5 +1,7 @@
 ## 4.2.9 (2026-09-29)
 
+- Require an administrator before opening or creating background alert automations; household users retain read-only health views.
+
 - Restore the selected tab after reloading a direct HA panel; ignore invalid saved tab values.
 
 - Initialize default battery and offline alert thresholds in the direct HA panel as well as Lovelace cards; preserve per-card threshold overrides.
