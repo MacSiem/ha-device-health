@@ -5,7 +5,7 @@ const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
 
 function panel() {
- const dom = new JSDOM('', {runScripts:'dangerously',url:'http://localhost/'});
+ const dom = new JSDOM('', {runScripts:'dangerously',pretendToBeVisual:true,url:'http://localhost/'});
  dom.window.eval(readFileSync(join(__dirname,'..','ha-device-health.js'),'utf8'));
  const card=dom.window.document.createElement('ha-device-health');
  card._hass={states:{
