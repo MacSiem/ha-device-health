@@ -33,3 +33,26 @@ test('Lovelace threshold overrides still apply and do not change a separately cr
   assert.deepEqual(Array.from(another._alerts,a=>a.severity),['critical','warning']);
  } finally {dom.window.close();}
 });
+
+for (const tab of ['batteries', 'network', 'alerts']) {
+ test(`direct panel restores persisted ${tab} tab after recreation`,()=>{
+  const {dom,card}=panel();
+  try {
+   dom.window.localStorage.setItem('ha-tools-device-health-settings',JSON.stringify({_activeTab:tab}));
+   const restored=dom.window.document.createElement('ha-device-health');restored._hass=card._hass;restored._render();
+   assert.equal(restored.shadowRoot.querySelector('.tab-btn.active').dataset.tab,tab);
+  } finally {dom.window.close();}
+ });
+}
+
+test('invalid and malformed saved tabs keep usable default Devices content',()=>{
+ const {dom,card}=panel();
+ try {
+  for (const saved of ['{bad',JSON.stringify({_activeTab:'unknown'}),JSON.stringify({_activeTab:5})]) {
+   dom.window.localStorage.setItem('ha-tools-device-health-settings',saved);
+   const restored=dom.window.document.createElement('ha-device-health');restored._hass=card._hass;restored.setConfig({title:'QA'});restored._render();
+   assert.equal(restored.shadowRoot.querySelector('.tab-btn.active')?.dataset.tab,'devices');
+   assert.ok(restored.shadowRoot.querySelector('.search-box'));
+  }
+ } finally {dom.window.close();}
+});
