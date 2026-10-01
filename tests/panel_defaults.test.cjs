@@ -56,3 +56,37 @@ test('invalid and malformed saved tabs keep usable default Devices content',()=>
   }
  } finally {dom.window.close();}
 });
+
+for (const user of [{is_admin:false}, undefined]) {
+ test(`background automation creation requires administrator identity (${user ? 'household' : 'not loaded'})`,async()=>{
+  const {dom,card}=panel();
+  try {
+   card._hass.user=user;card._activeTab='alerts';card._render();
+   assert.equal(card.shadowRoot.querySelector('.background-alerts-generate'),null);
+  } finally {dom.window.close();}
+ });
+ test(`direct background creation cannot post or reload for ${user ? 'household' : 'missing identity'}`,async()=>{
+  const {dom,card}=panel();
+  try {
+   const writes=[];card._hass.user=user;
+   card._hass.callApi=async(...args)=>writes.push(args);
+   card._hass.callService=async(...args)=>writes.push(args);
+   card._backgroundAlertDialog={automations:[{id:'qa_background',entityId:'automation.qa_background',label:'QA',payload:{}}],errors:[]};
+   await card._createBackgroundAlertAutomations();
+   assert.deepEqual(writes,[]);
+  } finally {dom.window.close();}
+ });
+}
+
+test('administrator retains background automation creation and reload',async()=>{
+ const {dom,card}=panel();
+ try {
+  const posts=[],services=[];card._hass.user={is_admin:true};card._activeTab='alerts';card._render();
+  assert.ok(card.shadowRoot.querySelector('.background-alerts-generate'));
+  card._hass.callApi=async(...args)=>posts.push(args);card._hass.callService=async(...args)=>services.push(args);
+  card._backgroundAlertDialog={automations:[{id:'qa_background',entityId:'automation.qa_background',label:'QA',payload:{alias:'QA'}}],errors:[]};
+  await card._createBackgroundAlertAutomations();
+  assert.deepEqual(posts,[['post','config/automation/config/qa_background',{alias:'QA'}]]);
+  assert.deepEqual(services,[['automation','reload']]);
+ } finally {dom.window.close();}
+});
