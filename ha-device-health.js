@@ -549,6 +549,13 @@ class HADeviceHealth extends HTMLElement {
     this._registryLoading = null;
     this._registryLoadedAt = 0;
     this._activeTab = "devices";
+    // Direct HA panels do not call Lovelace setConfig.
+    try {
+      const saved = JSON.parse(localStorage.getItem('ha-tools-device-health-settings'));
+      if (['devices', 'batteries', 'network', 'alerts'].includes(saved?._activeTab)) {
+        this._activeTab = saved._activeTab;
+      }
+    } catch (_) { /* Invalid saved state keeps the default Devices view. */ }
     this._deviceFilter = "all";
     this._searchQuery = "";
     this._groupByDomain = false;
@@ -676,14 +683,6 @@ class HADeviceHealth extends HTMLElement {
       ...HADeviceHealth.getStubConfig(),
       ...config,
     };
-    // Load persisted UI state
-    try {
-      const _saved = localStorage.getItem('ha-tools-device-health-settings');
-      if (_saved) {
-        const _s = JSON.parse(_saved);
-        if (_s._activeTab) this._activeTab = _s._activeTab;
-      }
-    } catch(e) { console.debug('[ha-device-health] caught:', e); }
     if (this._hass) this._render();
   }
 
