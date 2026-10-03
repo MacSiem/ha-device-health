@@ -502,26 +502,22 @@ pre {
 `;
 // Card-owned support footer. Never mutates document or foreign cards.
 const _LOCAL_INTRO_KEY = 'ha-intro-dismissed-ha-device-health';
-const _LOCAL_INTRO = {
-  headline: "Device battery / signal / last-seen health.",
-  steps: ["List devices grouped by health (OK / Warning / Critical).","Filter by low battery (<20%) or weak signal.","Click device for model / manufacturer / last seen."]
-};
-const _LOCAL_DONATE_HTML = ''
+function _renderLocalSupport(t) { return ''
   + '<div class="donate-section" data-source="own-card" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-direction:row;justify-content:flex-start;text-align:left;">'
-  + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">Optional support for HA Tools</a><button type="button" class="support-dismiss" aria-label="Dismiss support link" style="margin-left:auto;padding:2px 6px;min-height:0;line-height:1;border:0;background:none;color:var(--secondary-text-color,#64748b);cursor:pointer">×</button>'
-  + '</div>';
+  + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">' + _esc(t('optionalSupport')) + '</a><button type="button" class="support-dismiss" aria-label="' + _esc(t('dismissSupport')) + '" style="margin-left:auto;padding:2px 6px;min-height:0;line-height:1;border:0;background:none;color:var(--secondary-text-color,#64748b);cursor:pointer">×</button>'
+  + '</div>'; }
 const _LOCAL_SUPPORT_KEY = 'ha-device-health-support-dismissed';
 function _localSupportDismissed() { try { return localStorage.getItem(_LOCAL_SUPPORT_KEY) === '1'; } catch (_) { return false; } }
 function _bindLocalSupportDismiss(root) { root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(_LOCAL_SUPPORT_KEY, '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); }); }
 function _localIntroDismissed() {
   try { return localStorage.getItem(_LOCAL_INTRO_KEY) === '1'; } catch(e) { return false; }
 }
-function _renderLocalIntro() {
+function _renderLocalIntro(t) {
   if (_localIntroDismissed()) return '';
-  const steps = _LOCAL_INTRO.steps.map(step => '<li>' + _esc(step) + '</li>').join('');
+  const steps = ['introStep1', 'introStep2', 'introStep3'].map(key => '<li>' + _esc(t(key)) + '</li>').join('');
   return '<div class="intro-banner" data-intro="ha-device-health">'
-    + '<button class="intro-dismiss" type="button" title="Dismiss" aria-label="Dismiss">✕</button>'
-    + '<div class="intro-headline">💡 ' + _esc(_LOCAL_INTRO.headline) + '</div>'
+    + '<button class="intro-dismiss" type="button" title="' + _esc(t('dismissIntro')) + '" aria-label="' + _esc(t('dismissIntro')) + '">✕</button>'
+    + '<div class="intro-headline">💡 ' + _esc(t('introHeadline')) + '</div>'
     + '<ol class="intro-steps">' + steps + '</ol>'
     + '</div>';
 }
@@ -594,6 +590,25 @@ class HADeviceHealth extends HTMLElement {
   static get _translations() {
     return {
       en: {
+        introHeadline: "Device battery / signal / last-seen health.",
+        introStep1: "List devices grouped by health (OK / Warning / Critical).",
+        introStep2: "Filter by low battery (<20%) or weak signal.",
+        introStep3: "Click device for model / manufacturer / last seen.",
+        dismissIntro: "Dismiss",
+        optionalSupport: "Optional support for HA Tools",
+        dismissSupport: "Dismiss support link",
+        show: "Show",
+        elapsedDays: "days",
+        elapsedHours: "hours",
+        elapsedMinutes: "minutes",
+        backgroundAlerts: "Background alerts (24/7)",
+        backgroundNote: "Creates native Home Assistant automations so alerts keep working with this panel closed.",
+        generateAutomations: "Generate automations…",
+        battery: "Battery",
+        notCreated: "not created",
+        automationActive: "active",
+        lastTriggered: "last triggered",
+        never: "never",
         deviceHealth: "Device Health",
         devices: "Devices",
         batteries: "Batteries",
@@ -632,6 +647,25 @@ class HADeviceHealth extends HTMLElement {
         next: "Next",
       },
       pl: {
+        introHeadline: "Stan baterii, sygnału i ostatniej aktywności urządzeń.",
+        introStep1: "Przeglądaj urządzenia według stanu: OK, ostrzeżenie lub krytyczny.",
+        introStep2: "Filtruj urządzenia z niskim poziomem baterii (<20%) lub słabym sygnałem.",
+        introStep3: "Kliknij urządzenie, aby zobaczyć model, producenta i ostatnią aktywność.",
+        dismissIntro: "Zamknij instrukcję",
+        optionalSupport: "Dobrowolne wsparcie HA Tools",
+        dismissSupport: "Ukryj link wsparcia",
+        show: "Pokaż",
+        elapsedDays: "dni",
+        elapsedHours: "godz.",
+        elapsedMinutes: "min",
+        backgroundAlerts: "Alerty w tle (24/7)",
+        backgroundNote: "Tworzy automatyzacje Home Assistant, aby alerty działały także przy zamkniętym panelu.",
+        generateAutomations: "Generuj automatyzacje…",
+        battery: "Bateria",
+        notCreated: "nie utworzono",
+        automationActive: "aktywna",
+        lastTriggered: "ostatnio uruchomiona",
+        never: "nigdy",
         deviceHealth: "Zdrowie Urządzeń",
         devices: "Urządzenia",
         batteries: "Baterie",
@@ -949,9 +983,9 @@ class HADeviceHealth extends HTMLElement {
     const diff = Date.now() - new Date(lastChanged).getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    if (days > 0) return `${days} days`;
-    if (hours > 0) return `${hours} hours`;
-    return `${Math.floor(diff / (1000 * 60))} minutes`;
+    if (days > 0) return `${days} ${this._t('elapsedDays')}`;
+    if (hours > 0) return `${hours} ${this._t('elapsedHours')}`;
+    return `${Math.floor(diff / (1000 * 60))} ${this._t('elapsedMinutes')}`;
   }
 
   _formatEntityName(entityId) {
@@ -1160,10 +1194,10 @@ class HADeviceHealth extends HTMLElement {
 
   _getBackgroundAutomationStatus(entityId) {
     const state = this._hass?.states?.[entityId];
-    if (!state) return "not created";
+    if (!state) return this._t('notCreated');
     const lastTriggered = state.attributes?.last_triggered;
-    const triggeredText = lastTriggered ? `, last triggered: ${new Date(lastTriggered).toLocaleString()}` : ", last triggered: never";
-    return `active${triggeredText}`;
+    const triggeredText = `, ${this._t('lastTriggered')}: ${lastTriggered ? new Date(lastTriggered).toLocaleString(this._lang) : this._t('never')}`;
+    return `${this._t('automationActive')}${triggeredText}`;
   }
 
   _renderBackgroundAlertsSection() {
@@ -1188,14 +1222,14 @@ class HADeviceHealth extends HTMLElement {
       <div class="background-alerts-section">
         <div class="background-alerts-header">
           <div>
-            <div class="background-alerts-title">Background alerts (24/7)</div>
-            <div class="background-alerts-note">Creates native Home Assistant automations so alerts keep working with this panel closed.</div>
+            <div class="background-alerts-title">${this._t('backgroundAlerts')}</div>
+            <div class="background-alerts-note">${this._t('backgroundNote')}</div>
           </div>
-          ${this._hass?.user?.is_admin === true ? `<button class="background-alerts-generate">Generate automations…</button>` : ""}
+          ${this._hass?.user?.is_admin === true ? `<button class="background-alerts-generate">${this._t('generateAutomations')}</button>` : ""}
         </div>
         <div class="background-alerts-status">
-          <div><strong>Battery:</strong> ${_esc(batteryStatus)}</div>
-          <div><strong>Offline:</strong> ${_esc(offlineStatus)}</div>
+          <div><strong>${this._t('battery')}:</strong> ${_esc(batteryStatus)}</div>
+          <div><strong>${this._t('offline')}:</strong> ${_esc(offlineStatus)}</div>
         </div>
         ${resultHtml}
       </div>
@@ -2170,7 +2204,7 @@ class HADeviceHealth extends HTMLElement {
               <button class="toggle-grouping ${this._groupByDomain ? 'active' : ''}">${this._t('toggleGrouping')}</button>
             </div>
             <div class="control-group">
-              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">Show:</span>
+              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
               <select class="page-size-selector" data-tab="devices">
                 ${[15,30,50,100].map(n => `<option value="${n}" ${this._pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
               </select>
@@ -2238,7 +2272,7 @@ class HADeviceHealth extends HTMLElement {
               </select>
             </div>
             <div class="control-group">
-              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">Show:</span>
+              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
               <select class="page-size-selector" data-tab="batteries">
                 ${[15,30,50,100].map(n => `<option value="${n}" ${this._batteryPageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
               </select>
@@ -2301,7 +2335,7 @@ class HADeviceHealth extends HTMLElement {
         <div class="tab-content active">
           <div class="controls">
             <div class="control-group">
-              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">Show:</span>
+              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
               <select class="page-size-selector" data-tab="network">
                 ${[15,30,50,100].map(n => `<option value="${n}" ${this._networkPageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
               </select>
@@ -2535,7 +2569,7 @@ ${style}
           .stat-val, .kpi-val, .metric-val { font-size: 16px; }
         }
 
-</style>${_renderLocalIntro()}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _LOCAL_DONATE_HTML : ''}`
+</style>${_renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
     _bindLocalIntroDismiss(this.shadowRoot);
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
