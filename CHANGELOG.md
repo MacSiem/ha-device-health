@@ -1,3 +1,7 @@
+## Unreleased
+
+- Keep search focus and the complete selection after typing or changing the Home Assistant language. Refresh existing translations and administrator automation controls immediately even when sensor states are unchanged.
+
 ## 4.2.9 (2026-09-29)
 
 - Require an administrator before opening or creating background alert automations; household users retain read-only health views.

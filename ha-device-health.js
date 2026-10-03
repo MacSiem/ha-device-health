@@ -726,6 +726,11 @@ class HADeviceHealth extends HTMLElement {
       this._render();
       return;
     }
+    // Locale and administrator controls can change without any sensor change.
+    // Rendered scalars also detect an in-place update of HA's user object.
+    if (this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
+      this._render();
+    }
     // Check if relevant state actually changed
     const newHash = this._computeStateHash();
     if (newHash === this._cachedStateHash) return;
@@ -1343,6 +1348,12 @@ class HADeviceHealth extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
+    this._renderedLang = this._lang;
+    this._renderedIsAdmin = this._hass.user?.is_admin === true;
+    const focusedSearch = this.shadowRoot.activeElement?.matches('.search-box')
+      ? this.shadowRoot.activeElement : null;
+    const searchSelection = focusedSearch
+      ? [focusedSearch.selectionStart, focusedSearch.selectionEnd, focusedSearch.selectionDirection] : null;
     this._lastRenderTime = Date.now();
     // Save scroll positions before rebuild
     const oldList = this.shadowRoot.querySelector('[data-device-list]');
@@ -2529,6 +2540,13 @@ ${style}
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
     this._drawSignalChart();
+    if (focusedSearch) {
+      const search = this.shadowRoot.querySelector('.search-box');
+      if (search) {
+        search.focus({ preventScroll: true });
+        search.setSelectionRange(...searchSelection);
+      }
+    }
 
     // Restore scroll positions after DOM rebuild
     this._scrollFrame = requestAnimationFrame(() => {
