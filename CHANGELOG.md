@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Translate the open background-automation preview, retained warning/error/result presentation, alert type labels and dates on ordinary language changes. Keep generated YAML, automation payloads, raw results and authored/server details unchanged.
+
 - Translate first-run guidance, optional support, page-size captions, elapsed-time units and the background alert overview when the Home Assistant language changes, preserving search drafts and administrator controls. Automation payloads and creation behavior remain unchanged.
 
 - Keep search focus and the complete selection after typing or changing the Home Assistant language. Refresh existing translations and administrator automation controls immediately even when sensor states are unchanged.

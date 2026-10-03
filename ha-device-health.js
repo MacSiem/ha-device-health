@@ -590,6 +590,40 @@ class HADeviceHealth extends HTMLElement {
   static get _translations() {
     return {
       en: {
+        previewDialog: "Generate Device Health background automations",
+        previewNote: "Re-running this generator regenerates and updates the same automation ids, for example after adding devices.",
+        automation: "automation",
+        batteryTriggerBefore: "Trigger: numeric_state below",
+        triggerOver: "over",
+        batterySensorEntities: "battery sensor entities.",
+        batteryAction: "Action: persistent_notification.create with entity name and current value.",
+        offlineTriggerBefore: "Trigger: state to",
+        triggerFor: "for",
+        monitoredDeviceEntities: "monitored device entities.",
+        offlineAction: "Action: persistent_notification.create with entity name.",
+        yamlPreview: "YAML preview",
+        cancel: "Cancel",
+        create: "Create",
+        creating: "Creating...",
+        reload: "Reload",
+        batteryAlert: "Battery alert",
+        offlineAlert: "Offline alert",
+        noBatteryEntities: "No numeric battery sensor entities were detected, so the battery automation cannot be generated.",
+        noMonitoredEntities: "No monitored device entities were detected, so the offline automation cannot be generated.",
+        haStateNotReady: "Home Assistant state is not available yet. Open the card after Home Assistant finishes loading and try again.",
+        batteryLimit: "Detected {count} battery sensors. The automation will use the first 150.",
+        automationCreated: "Created automation {id}.",
+        automationUpdated: "Updated existing automation {id}.",
+        automationCreateFailed: "Failed to create automation {id}: {detail}",
+        automationUpdateFailed: "Failed to update automation {id}: {detail}",
+        generationFailed: "Automation generation failed: {detail}",
+        reloadCalled: "automation.reload service called.",
+        reloadFailed: "automation.reload failed: {detail}",
+        alert_type_battery_critical: "battery critical",
+        alert_type_battery_warning: "battery warning",
+        alert_type_signal_weak: "signal weak",
+        alert_type_offline: "offline",
+        alert_type_unavailable: "unavailable",
         introHeadline: "Device battery / signal / last-seen health.",
         introStep1: "List devices grouped by health (OK / Warning / Critical).",
         introStep2: "Filter by low battery (<20%) or weak signal.",
@@ -647,6 +681,40 @@ class HADeviceHealth extends HTMLElement {
         next: "Next",
       },
       pl: {
+        previewDialog: "Podgląd automatyzacji Device Health",
+        previewNote: "Ponowne uruchomienie generatora odtwarza i aktualizuje te same identyfikatory automatyzacji, na przykład po dodaniu urządzeń.",
+        automation: "automatyzacja",
+        batteryTriggerBefore: "Wyzwalacz: numeric_state poniżej",
+        triggerOver: "dla",
+        batterySensorEntities: "encji czujników baterii.",
+        batteryAction: "Akcja: persistent_notification.create z nazwą encji i bieżącą wartością.",
+        offlineTriggerBefore: "Wyzwalacz: zmiana stanu na",
+        triggerFor: "przez",
+        monitoredDeviceEntities: "monitorowanych encji urządzeń.",
+        offlineAction: "Akcja: persistent_notification.create z nazwą encji.",
+        yamlPreview: "Podgląd YAML",
+        cancel: "Anuluj",
+        create: "Utwórz",
+        creating: "Tworzenie...",
+        reload: "Przeładuj",
+        batteryAlert: "Alert baterii",
+        offlineAlert: "Alert niedostępności",
+        noBatteryEntities: "Nie wykryto liczbowych encji czujników baterii, więc nie można wygenerować automatyzacji baterii.",
+        noMonitoredEntities: "Nie wykryto monitorowanych encji urządzeń, więc nie można wygenerować automatyzacji niedostępności.",
+        haStateNotReady: "Stany Home Assistant nie są jeszcze dostępne. Otwórz kartę po zakończeniu ładowania i spróbuj ponownie.",
+        batteryLimit: "Wykryto {count} czujników baterii. Automatyzacja użyje pierwszych 150.",
+        automationCreated: "Utworzono automatyzację {id}.",
+        automationUpdated: "Zaktualizowano istniejącą automatyzację {id}.",
+        automationCreateFailed: "Nie udało się utworzyć automatyzacji {id}: {detail}",
+        automationUpdateFailed: "Nie udało się zaktualizować automatyzacji {id}: {detail}",
+        generationFailed: "Generowanie automatyzacji nie powiodło się: {detail}",
+        reloadCalled: "Wywołano usługę automation.reload.",
+        reloadFailed: "Przeładowanie automation.reload nie powiodło się: {detail}",
+        alert_type_battery_critical: "krytyczny poziom baterii",
+        alert_type_battery_warning: "niski poziom baterii",
+        alert_type_signal_weak: "słaby sygnał",
+        alert_type_offline: "offline",
+        alert_type_unavailable: "niedostępne",
         introHeadline: "Stan baterii, sygnału i ostatniej aktywności urządzeń.",
         introStep1: "Przeglądaj urządzenia według stanu: OK, ostrzeżenie lub krytyczny.",
         introStep2: "Filtruj urządzenia z niskim poziomem baterii (<20%) lub słabym sygnałem.",
@@ -1192,6 +1260,41 @@ class HADeviceHealth extends HTMLElement {
     return `${pad}${this._yamlScalar(value)}`;
   }
 
+  _backgroundAlertMessage(message) {
+    const value = String(message ?? '');
+    const exact = {
+      'Battery alert': 'batteryAlert',
+      'Offline alert': 'offlineAlert',
+      'No numeric battery sensor entities were detected, so the battery automation cannot be generated.': 'noBatteryEntities',
+      'No monitored device entities were detected, so the offline automation cannot be generated.': 'noMonitoredEntities',
+      'Home Assistant state is not available yet. Open the card after Home Assistant finishes loading and try again.': 'haStateNotReady',
+      'automation.reload service called.': 'reloadCalled',
+    };
+    if (Object.prototype.hasOwnProperty.call(exact, value)) return this._t(exact[value]);
+    const patterns = [
+      [/^Detected (\d+) battery sensors\. The automation will use the first 150\.$/, 'batteryLimit', ['count']],
+      [/^Created automation (.+)\.$/, 'automationCreated', ['id']],
+      [/^Updated existing automation (.+)\.$/, 'automationUpdated', ['id']],
+      [/^Failed to create automation ([^:]+): ([\s\S]*)$/, 'automationCreateFailed', ['id', 'detail']],
+      [/^Failed to update automation ([^:]+): ([\s\S]*)$/, 'automationUpdateFailed', ['id', 'detail']],
+      [/^Automation generation failed: ([\s\S]*)$/, 'generationFailed', ['detail']],
+      [/^automation\.reload failed: ([\s\S]*)$/, 'reloadFailed', ['detail']],
+    ];
+    for (const [pattern, key, fields] of patterns) {
+      const match = value.match(pattern);
+      if (!match) continue;
+      const values = Object.fromEntries(fields.map((field, index) => [field, match[index + 1]]));
+      return this._t(key).replace(/\{(\w+)\}/g, (token, field) => values[field] ?? token);
+    }
+    return value;
+  }
+
+  _alertTypeLabel(type) {
+    const key = 'alert_type_' + type;
+    const label = this._t(key);
+    return label === key ? String(type).replace(/_/g, ' ') : label;
+  }
+
   _getBackgroundAutomationStatus(entityId) {
     const state = this._hass?.states?.[entityId];
     if (!state) return this._t('notCreated');
@@ -1207,12 +1310,12 @@ class HADeviceHealth extends HTMLElement {
       <div class="automation-result-summary">
         ${this._backgroundAlertResult.results.map((result) => `
           <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
-            <strong>${_esc(result.label)}:</strong> ${_esc(result.message)}
+            <strong>${_esc(this._backgroundAlertMessage(result.label))}:</strong> ${_esc(this._backgroundAlertMessage(result.message))}
           </div>
         `).join("")}
         ${this._backgroundAlertResult.reload ? `
           <div class="automation-result automation-result-${this._backgroundAlertResult.reload.ok ? "success" : "error"}">
-            <strong>Reload:</strong> ${_esc(this._backgroundAlertResult.reload.message)}
+            <strong>${this._t('reload')}:</strong> ${_esc(this._backgroundAlertMessage(this._backgroundAlertResult.reload.message))}
           </div>
         ` : ""}
       </div>
@@ -1245,58 +1348,58 @@ class HADeviceHealth extends HTMLElement {
 
     return `
       <div class="automation-dialog-backdrop">
-        <div class="automation-dialog" role="dialog" aria-modal="true" aria-label="Generate Device Health background automations">
-          <div class="automation-dialog-title">Background alerts (24/7)</div>
+        <div class="automation-dialog" role="dialog" aria-modal="true" aria-label="${this._t('previewDialog')}">
+          <div class="automation-dialog-title">${this._t('backgroundAlerts')}</div>
           <div class="automation-dialog-note">
-            Re-running this generator regenerates and updates the same automation ids, for example after adding devices.
+            ${this._t('previewNote')}
           </div>
 
           ${dialog.errors && dialog.errors.length ? `
             <div class="automation-dialog-errors">
-              ${dialog.errors.map((error) => `<div>${_esc(error)}</div>`).join("")}
+              ${dialog.errors.map((error) => `<div>${_esc(this._backgroundAlertMessage(error))}</div>`).join("")}
             </div>
           ` : ""}
 
           ${dialog.warnings && dialog.warnings.length ? `
             <div class="automation-dialog-warnings">
-              ${dialog.warnings.map((warning) => `<div>${_esc(warning)}</div>`).join("")}
+              ${dialog.warnings.map((warning) => `<div>${_esc(this._backgroundAlertMessage(warning))}</div>`).join("")}
             </div>
           ` : ""}
 
           <div class="automation-preview-grid">
             <div class="automation-preview-card">
-              <div class="automation-preview-title">automation 1 <code>${_esc(battery?.id || "")}</code></div>
-              <div>Trigger: numeric_state below ${_esc(dialog.batteryWarning)} over ${_esc(dialog.batteryEntityCount)} battery sensor entities.</div>
-              <div>Action: persistent_notification.create with entity name and current value.</div>
+              <div class="automation-preview-title">${this._t('automation')} 1 <code>${_esc(battery?.id || "")}</code></div>
+              <div>${this._t('batteryTriggerBefore')} ${_esc(dialog.batteryWarning)} ${this._t('triggerOver')} ${_esc(dialog.batteryEntityCount)} ${this._t('batterySensorEntities')}</div>
+              <div>${this._t('batteryAction')}</div>
             </div>
             <div class="automation-preview-card">
-              <div class="automation-preview-title">automation 2 <code>${_esc(offline?.id || "")}</code></div>
-              <div>Trigger: state to "unavailable" for ${_esc(dialog.offlineMinutes)} minutes over ${_esc(dialog.deviceEntityCount)} monitored device entities.</div>
-              <div>Action: persistent_notification.create with entity name.</div>
+              <div class="automation-preview-title">${this._t('automation')} 2 <code>${_esc(offline?.id || "")}</code></div>
+              <div>${this._t('offlineTriggerBefore')} "unavailable" ${this._t('triggerFor')} ${_esc(dialog.offlineMinutes)} ${this._t('elapsedMinutes')} ${this._t('triggerOver')} ${_esc(dialog.deviceEntityCount)} ${this._t('monitoredDeviceEntities')}</div>
+              <div>${this._t('offlineAction')}</div>
             </div>
           </div>
 
-          <label class="automation-yaml-label" for="background-automation-yaml">YAML preview</label>
+          <label class="automation-yaml-label" for="background-automation-yaml">${this._t('yamlPreview')}</label>
           <textarea id="background-automation-yaml" class="automation-yaml-preview" readonly spellcheck="false">${_esc(dialog.yaml || "")}</textarea>
 
           ${dialog.results ? `
             <div class="automation-dialog-results">
               ${dialog.results.map((result) => `
                 <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
-                  <strong>${_esc(result.label)}:</strong> ${_esc(result.message)}
+                  <strong>${_esc(this._backgroundAlertMessage(result.label))}:</strong> ${_esc(this._backgroundAlertMessage(result.message))}
                 </div>
               `).join("")}
               ${dialog.reload ? `
                 <div class="automation-result automation-result-${dialog.reload.ok ? "success" : "error"}">
-                  <strong>Reload:</strong> ${_esc(dialog.reload.message)}
+                  <strong>${this._t('reload')}:</strong> ${_esc(this._backgroundAlertMessage(dialog.reload.message))}
                 </div>
               ` : ""}
             </div>
           ` : ""}
 
           <div class="automation-dialog-actions">
-            <button class="automation-dialog-cancel" ${dialog.creating ? "disabled" : ""}>Cancel</button>
-            <button class="automation-dialog-create primary" ${createDisabled ? "disabled" : ""}>${dialog.creating ? "Creating..." : "Create"}</button>
+            <button class="automation-dialog-cancel" ${dialog.creating ? "disabled" : ""}>${this._t('cancel')}</button>
+            <button class="automation-dialog-create primary" ${createDisabled ? "disabled" : ""}>${dialog.creating ? this._t('creating') : this._t('create')}</button>
           </div>
         </div>
       </div>
@@ -2232,7 +2335,7 @@ class HADeviceHealth extends HTMLElement {
                       <td>${_esc(device.name)}</td>
                       <td>${_esc(device.type)}</td>
                       <td><span class="status-badge status-${_esc(device.status)}">${_esc(device.status.toUpperCase())}</span></td>
-                      <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString() : "—"}</td>
+                      <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString(this._lang) : "—"}</td>
                       <td>${_esc(device.uptime)}</td>
                     </tr>`
                 )
@@ -2291,7 +2394,7 @@ class HADeviceHealth extends HTMLElement {
                       <div class="battery-icon">🔋</div>
                       <div class="battery-info">
                         <div class="battery-name">${_esc(battery.name)}</div>
-                        <div class="battery-label">${this._t('lastChanged')}: ${new Date(battery.lastChanged).toLocaleDateString()}</div>
+                        <div class="battery-label">${this._t('lastChanged')}: ${new Date(battery.lastChanged).toLocaleDateString(this._lang)}</div>
                       </div>
                       <div class="battery-right">
                         <div class="battery-bar">
@@ -2438,9 +2541,9 @@ class HADeviceHealth extends HTMLElement {
           html += `
             <div class="alert-item alert-${_esc(alert.severity)}">
               <div class="alert-text">
-                <div class="alert-type">${_esc(alert.type.toUpperCase().replace(/_/g, " "))}</div>
+                <div class="alert-type">${_esc(this._alertTypeLabel(alert.type).toUpperCase())}</div>
                 <div>${_esc(alert.name)}</div>
-                <div class="alert-time">${new Date(alert.timestamp).toLocaleString()}</div>
+                <div class="alert-time">${new Date(alert.timestamp).toLocaleString(this._lang)}</div>
               </div>
               <div class="alert-actions">
                 <button class="alert-dismiss" data-alert-id="${_esc(alertId)}">${this._t('dismiss')}</button>
@@ -2467,8 +2570,8 @@ class HADeviceHealth extends HTMLElement {
           .map(
             (alert) =>
               `<div style="padding: 8px 12px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "var(--ec)" : alert.severity === "warning" ? "var(--wc)" : "var(--pc)"}; margin-bottom: 4px; border-radius: var(--radius-xs); background: var(--bg);">
-                <div style="font-size: 12px; font-weight: 500; color: var(--tc);">${_esc(alert.type.replace(/_/g, ' '))} — ${_esc(alert.name)}</div>
-                <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${new Date(alert.timestamp).toLocaleString()}</div>
+                <div style="font-size: 12px; font-weight: 500; color: var(--tc);">${_esc(this._alertTypeLabel(alert.type))} — ${_esc(alert.name)}</div>
+                <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${new Date(alert.timestamp).toLocaleString(this._lang)}</div>
               </div>`
           )
           .join("")}
