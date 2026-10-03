@@ -92,11 +92,11 @@ test('current and historical alert labels and timestamps follow card locale with
 test('existing background creation results translate at render time while preserving server error details',()=>{
  const {dom,card,hass,calls}=fixture();
  try {
-  const results=[{label:'Battery alert',ok:true,message:'Created automation ha_device_health_battery_alert.'},{label:'Offline alert',ok:false,message:'Failed to create automation ha_device_health_offline_alert: QA network detail'}];
+  const results=[{label:'Battery alert',ok:true,message:'Created automation ha_device_health_battery_alert.'},{label:'Offline alert',ok:false,message:'Failed to create automation ha_device_health_offline_alert: QA network detail <img src=x> {id} $&'}];
   card._backgroundAlertResult={results,reload:{ok:false,message:'automation.reload failed: QA reload detail'}};card._activeTab='alerts';card._render();
   card.hass={...hass,language:'pl'};const text=card.shadowRoot.querySelector('.automation-result-summary').textContent;
   assert.match(text,/Alert baterii/);assert.match(text,/Utworzono automatyzację ha_device_health_battery_alert/);
-  assert.match(text,/Nie udało się utworzyć automatyzacji ha_device_health_offline_alert: QA network detail/);
-  assert.match(text,/QA reload detail/);assert.equal(card._backgroundAlertResult.results,results);assert.equal(calls.length,0);
+  assert.match(text,/Nie udało się utworzyć automatyzacji ha_device_health_offline_alert: QA network detail <img src=x> \{id\} \$&/);
+  assert.match(text,/QA reload detail/);assert.equal(card.shadowRoot.querySelector('.automation-result-summary img'),null);assert.equal(results[1].message,'Failed to create automation ha_device_health_offline_alert: QA network detail <img src=x> {id} $&');assert.equal(card._backgroundAlertResult.results,results);assert.equal(calls.length,0);
  } finally {dom.window.close();}
 });
