@@ -1,3 +1,25 @@
+## Unreleased
+
+- Translate the open background-automation preview, retained warning/error/result presentation, alert type labels and dates on ordinary language changes. Keep generated YAML, automation payloads, raw results and authored/server details unchanged.
+
+- Translate first-run guidance, optional support, page-size captions, elapsed-time units and the background alert overview when the Home Assistant language changes, preserving search drafts and administrator controls. Automation payloads and creation behavior remain unchanged.
+
+- Keep search focus and the complete selection after typing or changing the Home Assistant language. Refresh existing translations and administrator automation controls immediately even when sensor states are unchanged.
+
+## 4.2.9 (2026-09-29)
+
+- Require an administrator before opening or creating background alert automations; household users retain read-only health views.
+
+- Restore the selected tab after reloading a direct HA panel; ignore invalid saved tab values.
+
+- Initialize default battery and offline alert thresholds in the direct HA panel as well as Lovelace cards; preserve per-card threshold overrides.
+- Classify network devices using HA Device/Entity Registry evidence and explicit SSID/connection attributes. Bluetooth/BLE stays separate; MAC/IP alone is Other.
+- Count registered devices once, show unlinked entity states separately, and stop showing demo devices when HA has no readings.
+- Mark devices with no entity states unknown; only an explicit connectivity sensor can mark a device offline. Show a dash for an absent or invalid last-change date instead of the Unix epoch.
+- Keep UNKNOWN visible on light backgrounds and use darker status badge fills for readable white text in both themes.
+- Translate the alert page-size label using the existing English/Polish pagination strings.
+- Replace the large donation panel with a compact optional link after user feedback in issue #2.
+
 ## 4.2.8 (2026-08-28)
 
 - Isolation: Bento CSS is component-local and cannot be captured from `window.HAToolsBentoCSS` by load order.

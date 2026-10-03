@@ -1,4 +1,4 @@
-/* HA Tools split — ha-device-health v4.2.8 (2026-08-28) — single-tool standalone repo */
+/* HA Tools split — ha-device-health v4.2.9 (2026-09-29) — single-tool standalone repo */
 (function() {
 'use strict';
 
@@ -502,30 +502,22 @@ pre {
 `;
 // Card-owned support footer. Never mutates document or foreign cards.
 const _LOCAL_INTRO_KEY = 'ha-intro-dismissed-ha-device-health';
-const _LOCAL_INTRO = {
-  headline: "Device battery / signal / last-seen health.",
-  steps: ["List devices grouped by health (OK / Warning / Critical).","Filter by low battery (<20%) or weak signal.","Click device for model / manufacturer / last seen."]
-};
-const _LOCAL_DONATE_HTML = ''
-  + '<div class="donate-section" data-source="ha-device-health">'
-  + '  <div class="donate-text">'
-  + '    <h3>❤️ Support HA Tools Development</h3>'
-  + '    <p>If this tool makes your Home Assistant life easier, consider supporting the project. Every coffee motivates further development!</p>'
-  + '  </div>'
-  + '  <div class="donate-buttons">'
-  + '    <a class="donate-btn coffee" href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a>'
-  + '    <a class="donate-btn paypal" href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a>'
-  + '  </div>'
-  + '</div>';
+function _renderLocalSupport(t) { return ''
+  + '<div class="donate-section" data-source="own-card" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-direction:row;justify-content:flex-start;text-align:left;">'
+  + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">' + _esc(t('optionalSupport')) + '</a><button type="button" class="support-dismiss" aria-label="' + _esc(t('dismissSupport')) + '" style="margin-left:auto;padding:2px 6px;min-height:0;line-height:1;border:0;background:none;color:var(--secondary-text-color,#64748b);cursor:pointer">×</button>'
+  + '</div>'; }
+const _LOCAL_SUPPORT_KEY = 'ha-device-health-support-dismissed';
+function _localSupportDismissed() { try { return localStorage.getItem(_LOCAL_SUPPORT_KEY) === '1'; } catch (_) { return false; } }
+function _bindLocalSupportDismiss(root) { root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(_LOCAL_SUPPORT_KEY, '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); }); }
 function _localIntroDismissed() {
   try { return localStorage.getItem(_LOCAL_INTRO_KEY) === '1'; } catch(e) { return false; }
 }
-function _renderLocalIntro() {
+function _renderLocalIntro(t) {
   if (_localIntroDismissed()) return '';
-  const steps = _LOCAL_INTRO.steps.map(step => '<li>' + _esc(step) + '</li>').join('');
+  const steps = ['introStep1', 'introStep2', 'introStep3'].map(key => '<li>' + _esc(t(key)) + '</li>').join('');
   return '<div class="intro-banner" data-intro="ha-device-health">'
-    + '<button class="intro-dismiss" type="button" title="Dismiss" aria-label="Dismiss">✕</button>'
-    + '<div class="intro-headline">💡 ' + _esc(_LOCAL_INTRO.headline) + '</div>'
+    + '<button class="intro-dismiss" type="button" title="' + _esc(t('dismissIntro')) + '" aria-label="' + _esc(t('dismissIntro')) + '">✕</button>'
+    + '<div class="intro-headline">💡 ' + _esc(t('introHeadline')) + '</div>'
     + '<ol class="intro-steps">' + steps + '</ol>'
     + '</div>';
 }
@@ -546,9 +538,20 @@ class HADeviceHealth extends HTMLElement {
     this._lang = (navigator.language || '').startsWith('pl') ? 'pl' : 'en';
     this.attachShadow({ mode: "open" });
     this._toolId = this.tagName.toLowerCase().replace('ha-', '');
-    this._config = {};
+    this._config = HADeviceHealth.getStubConfig();
     this._hass = null;
+    this._entityRegistry = new Map();
+    this._deviceRegistry = new Map();
+    this._registryLoading = null;
+    this._registryLoadedAt = 0;
     this._activeTab = "devices";
+    // Direct HA panels do not call Lovelace setConfig.
+    try {
+      const saved = JSON.parse(localStorage.getItem('ha-tools-device-health-settings'));
+      if (['devices', 'batteries', 'network', 'alerts'].includes(saved?._activeTab)) {
+        this._activeTab = saved._activeTab;
+      }
+    } catch (_) { /* Invalid saved state keeps the default Devices view. */ }
     this._deviceFilter = "all";
     this._searchQuery = "";
     this._groupByDomain = false;
@@ -587,6 +590,59 @@ class HADeviceHealth extends HTMLElement {
   static get _translations() {
     return {
       en: {
+        previewDialog: "Generate Device Health background automations",
+        previewNote: "Re-running this generator regenerates and updates the same automation ids, for example after adding devices.",
+        automation: "automation",
+        batteryTriggerBefore: "Trigger: numeric_state below",
+        triggerOver: "over",
+        batterySensorEntities: "battery sensor entities.",
+        batteryAction: "Action: persistent_notification.create with entity name and current value.",
+        offlineTriggerBefore: "Trigger: state to",
+        triggerFor: "for",
+        monitoredDeviceEntities: "monitored device entities.",
+        offlineAction: "Action: persistent_notification.create with entity name.",
+        yamlPreview: "YAML preview",
+        cancel: "Cancel",
+        create: "Create",
+        creating: "Creating...",
+        reload: "Reload",
+        batteryAlert: "Battery alert",
+        offlineAlert: "Offline alert",
+        noBatteryEntities: "No numeric battery sensor entities were detected, so the battery automation cannot be generated.",
+        noMonitoredEntities: "No monitored device entities were detected, so the offline automation cannot be generated.",
+        haStateNotReady: "Home Assistant state is not available yet. Open the card after Home Assistant finishes loading and try again.",
+        batteryLimit: "Detected {count} battery sensors. The automation will use the first 150.",
+        automationCreated: "Created automation {id}.",
+        automationUpdated: "Updated existing automation {id}.",
+        automationCreateFailed: "Failed to create automation {id}: {detail}",
+        automationUpdateFailed: "Failed to update automation {id}: {detail}",
+        generationFailed: "Automation generation failed: {detail}",
+        reloadCalled: "automation.reload service called.",
+        reloadFailed: "automation.reload failed: {detail}",
+        alert_type_battery_critical: "battery critical",
+        alert_type_battery_warning: "battery warning",
+        alert_type_signal_weak: "signal weak",
+        alert_type_offline: "offline",
+        alert_type_unavailable: "unavailable",
+        introHeadline: "Device battery / signal / last-seen health.",
+        introStep1: "List devices grouped by health (OK / Warning / Critical).",
+        introStep2: "Filter by low battery (<20%) or weak signal.",
+        introStep3: "Click device for model / manufacturer / last seen.",
+        dismissIntro: "Dismiss",
+        optionalSupport: "Optional support for HA Tools",
+        dismissSupport: "Dismiss support link",
+        show: "Show",
+        elapsedDays: "days",
+        elapsedHours: "hours",
+        elapsedMinutes: "minutes",
+        backgroundAlerts: "Background alerts (24/7)",
+        backgroundNote: "Creates native Home Assistant automations so alerts keep working with this panel closed.",
+        generateAutomations: "Generate automations…",
+        battery: "Battery",
+        notCreated: "not created",
+        automationActive: "active",
+        lastTriggered: "last triggered",
+        never: "never",
         deviceHealth: "Device Health",
         devices: "Devices",
         batteries: "Batteries",
@@ -597,14 +653,17 @@ class HADeviceHealth extends HTMLElement {
         online: "Online",
         offline: "Offline",
         unavailable: "Unavailable",
+        unknown: "No entity state",
         toggleGrouping: "Toggle Grouping",
         totalDevices: "Total Devices",
+        unlinkedEntities: "Entities without a registered device",
         availability: "Availability",
         name: "Name",
         type: "Type",
         status: "Status",
-        lastSeen: "Last Seen",
-        uptime: "Uptime",
+        lastSeen: "Last state change",
+        uptime: "Since change",
+        noNetworkEvidence: "No connection evidence in the device registry.",
         levelWorstFirst: "Level (Worst First)",
         batteryHealthSummary: "Battery Health Summary",
         deviceNeedAttention: "device(s) need attention",
@@ -622,6 +681,59 @@ class HADeviceHealth extends HTMLElement {
         next: "Next",
       },
       pl: {
+        previewDialog: "Podgląd automatyzacji Device Health",
+        previewNote: "Ponowne uruchomienie generatora odtwarza i aktualizuje te same identyfikatory automatyzacji, na przykład po dodaniu urządzeń.",
+        automation: "automatyzacja",
+        batteryTriggerBefore: "Wyzwalacz: numeric_state poniżej",
+        triggerOver: "dla",
+        batterySensorEntities: "encji czujników baterii.",
+        batteryAction: "Akcja: persistent_notification.create z nazwą encji i bieżącą wartością.",
+        offlineTriggerBefore: "Wyzwalacz: zmiana stanu na",
+        triggerFor: "przez",
+        monitoredDeviceEntities: "monitorowanych encji urządzeń.",
+        offlineAction: "Akcja: persistent_notification.create z nazwą encji.",
+        yamlPreview: "Podgląd YAML",
+        cancel: "Anuluj",
+        create: "Utwórz",
+        creating: "Tworzenie...",
+        reload: "Przeładuj",
+        batteryAlert: "Alert baterii",
+        offlineAlert: "Alert niedostępności",
+        noBatteryEntities: "Nie wykryto liczbowych encji czujników baterii, więc nie można wygenerować automatyzacji baterii.",
+        noMonitoredEntities: "Nie wykryto monitorowanych encji urządzeń, więc nie można wygenerować automatyzacji niedostępności.",
+        haStateNotReady: "Stany Home Assistant nie są jeszcze dostępne. Otwórz kartę po zakończeniu ładowania i spróbuj ponownie.",
+        batteryLimit: "Wykryto {count} czujników baterii. Automatyzacja użyje pierwszych 150.",
+        automationCreated: "Utworzono automatyzację {id}.",
+        automationUpdated: "Zaktualizowano istniejącą automatyzację {id}.",
+        automationCreateFailed: "Nie udało się utworzyć automatyzacji {id}: {detail}",
+        automationUpdateFailed: "Nie udało się zaktualizować automatyzacji {id}: {detail}",
+        generationFailed: "Generowanie automatyzacji nie powiodło się: {detail}",
+        reloadCalled: "Wywołano usługę automation.reload.",
+        reloadFailed: "Przeładowanie automation.reload nie powiodło się: {detail}",
+        alert_type_battery_critical: "krytyczny poziom baterii",
+        alert_type_battery_warning: "niski poziom baterii",
+        alert_type_signal_weak: "słaby sygnał",
+        alert_type_offline: "offline",
+        alert_type_unavailable: "niedostępne",
+        introHeadline: "Stan baterii, sygnału i ostatniej aktywności urządzeń.",
+        introStep1: "Przeglądaj urządzenia według stanu: OK, ostrzeżenie lub krytyczny.",
+        introStep2: "Filtruj urządzenia z niskim poziomem baterii (<20%) lub słabym sygnałem.",
+        introStep3: "Kliknij urządzenie, aby zobaczyć model, producenta i ostatnią aktywność.",
+        dismissIntro: "Zamknij instrukcję",
+        optionalSupport: "Dobrowolne wsparcie HA Tools",
+        dismissSupport: "Ukryj link wsparcia",
+        show: "Pokaż",
+        elapsedDays: "dni",
+        elapsedHours: "godz.",
+        elapsedMinutes: "min",
+        backgroundAlerts: "Alerty w tle (24/7)",
+        backgroundNote: "Tworzy automatyzacje Home Assistant, aby alerty działały także przy zamkniętym panelu.",
+        generateAutomations: "Generuj automatyzacje…",
+        battery: "Bateria",
+        notCreated: "nie utworzono",
+        automationActive: "aktywna",
+        lastTriggered: "ostatnio uruchomiona",
+        never: "nigdy",
         deviceHealth: "Zdrowie Urządzeń",
         devices: "Urządzenia",
         batteries: "Baterie",
@@ -632,14 +744,17 @@ class HADeviceHealth extends HTMLElement {
         online: "Online",
         offline: "Offline",
         unavailable: "Niedostępne",
+        unknown: "Brak stanu encji",
         toggleGrouping: "Przełącz Grupowanie",
         totalDevices: "Razem Urządzeń",
+        unlinkedEntities: "Encje bez zarejestrowanego urządzenia",
         availability: "Dostępność",
         name: "Nazwa",
         type: "Typ",
         status: "Status",
-        lastSeen: "Ostatnio Widziane",
-        uptime: "Czas Pracy",
+        lastSeen: "Ostatnia zmiana stanu",
+        uptime: "Od zmiany",
+        noNetworkEvidence: "Brak danych o połączeniu w rejestrze urządzeń.",
         levelWorstFirst: "Poziom (Najgorsze Pierwsze)",
         batteryHealthSummary: "Podsumowanie Zdrowia Baterii",
         deviceNeedAttention: "urządzenie(ń) wymaga uwagi",
@@ -667,20 +782,10 @@ class HADeviceHealth extends HTMLElement {
 
   setConfig(config) {
     this._config = {
-      title: "Device Health",
-      battery_warning: 30,
-      battery_critical: 10,
-      offline_alert_minutes: 60,
+      ...HADeviceHealth.getStubConfig(),
       ...config,
     };
-    // Load persisted UI state
-    try {
-      const _saved = localStorage.getItem('ha-tools-device-health-settings');
-      if (_saved) {
-        const _s = JSON.parse(_saved);
-        if (_s._activeTab) this._activeTab = _s._activeTab;
-      }
-    } catch(e) { console.debug('[ha-device-health] caught:', e); }
+    if (this._hass) this._render();
   }
 
   _computeStateHash() {
@@ -714,6 +819,7 @@ class HADeviceHealth extends HTMLElement {
     } catch (e) {}
     if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
     this._hass = hass;
+    this._loadRegistries();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
     if (this._firstRender) {
       this._firstRender = false;
@@ -721,6 +827,11 @@ class HADeviceHealth extends HTMLElement {
       this._generateAlerts();
       this._render();
       return;
+    }
+    // Locale and administrator controls can change without any sensor change.
+    // Rendered scalars also detect an in-place update of HA's user object.
+    if (this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
+      this._render();
     }
     // Check if relevant state actually changed
     const newHash = this._computeStateHash();
@@ -755,58 +866,61 @@ class HADeviceHealth extends HTMLElement {
 
   _sanitize(s) { try { return decodeURIComponent(escape(s)); } catch(e) { return s; } }
 
+  _loadRegistries() {
+    if (!this._hass?.callWS || this._registryLoading || Date.now() - this._registryLoadedAt < 300000) return;
+    this._registryLoading = Promise.all([
+      this._hass.callWS({ type: 'config/entity_registry/list' }),
+      this._hass.callWS({ type: 'config/device_registry/list' })
+    ]).then(([entities, devices]) => {
+      this._entityRegistry = new Map(entities.map(entry => [entry.entity_id, entry]));
+      this._deviceRegistry = new Map(devices.map(entry => [entry.id, entry]));
+      this._registryLoadedAt = Date.now();
+      if (this.isConnected) { this._generateAlerts(); this._render(); }
+    }).catch(error => {
+      console.warn('[ha-device-health] Registry lookup failed', error);
+      this._registryLoadedAt = Date.now();
+    }).finally(() => { this._registryLoading = null; });
+  }
+
   _update() {
     this._generateAlerts();
     this._render();
   }
 
   _getDevices() {
-    const devices = [];
-
-    if (!this._hass || !this._hass.states) {
-      return this._getDemoDevices();
+    if (!this._hass?.states) return [];
+    const statesByDevice = new Map();
+    for (const [entityId, entry] of this._entityRegistry) {
+      if (!entry.device_id || !this._hass.states[entityId]) continue;
+      if (!statesByDevice.has(entry.device_id)) statesByDevice.set(entry.device_id, []);
+      statesByDevice.get(entry.device_id).push(this._hass.states[entityId]);
     }
-
-    const states = this._hass.states;
-    const seenEntities = new Set();
-
-    // Collect device_tracker entities
-    Object.keys(states).forEach((entityId) => {
-      if (entityId.startsWith("device_tracker.")) {
-        const state = states[entityId];
-        seenEntities.add(entityId);
-        devices.push({
-          id: entityId,
-          name: this._formatEntityName(entityId),
-          type: "device_tracker",
-          status: state.state === "home" ? "online" : state.state === "not_home" ? "offline" : "unavailable",
-          lastSeen: state.attributes.last_seen || state.last_changed,
-          uptime: this._calculateUptime(state.last_changed),
-          domain: "device_tracker",
-        });
-      }
+    return [...this._deviceRegistry.values()].map(device => {
+      const states = statesByDevice.get(device.id) || [];
+      const available = states.filter(state => state.state !== 'unavailable' && state.state !== 'unknown');
+      const disconnected = states.some(state =>
+        state.entity_id?.startsWith('binary_sensor.') &&
+        state.attributes?.device_class === 'connectivity' && state.state === 'off'
+      );
+      const latest = states.map(state => state.last_changed).filter(Boolean).sort().at(-1);
+      return {
+        id: device.id,
+        name: this._sanitize(device.name_by_user || device.name || device.id),
+        type: device.model || 'device',
+        status: !states.length ? 'unknown' : !available.length ? 'unavailable' : disconnected ? 'offline' : 'online',
+        lastSeen: latest || null,
+        uptime: latest ? this._calculateUptime(latest) : '',
+        domain: 'device',
+      };
     });
+  }
 
-    // Collect switch/light/sensor devices
-    Object.keys(states).forEach((entityId) => {
-      const domain = entityId.split(".")[0];
-      if (["switch", "light", "climate", "sensor"].includes(domain) && !entityId.includes("_battery") && !entityId.includes("_signal")) {
-        const state = states[entityId];
-        seenEntities.add(entityId);
-        const isAvailable = state.state !== "unavailable" && state.state !== "unknown";
-        devices.push({
-          id: entityId,
-          name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),
-          type: domain,
-          status: !isAvailable ? "unavailable" : state.state === "off" || state.state === "unknown" ? "offline" : "online",
-          lastSeen: state.last_changed,
-          uptime: this._calculateUptime(state.last_changed),
-          domain: domain,
-        });
-      }
-    });
-
-    return devices.length > 0 ? devices : this._getDemoDevices();
+  _unlinkedEntityCount() {
+    if (!this._hass?.states || (!this._entityRegistry.size && !this._deviceRegistry.size)) return null;
+    return Object.keys(this._hass.states).filter(entityId => {
+      const deviceId = this._entityRegistry.get(entityId)?.device_id;
+      return !deviceId || !this._deviceRegistry.has(deviceId);
+    }).length;
   }
 
   _isBatteryLevelEntity(entityId, state) {
@@ -824,7 +938,7 @@ class HADeviceHealth extends HTMLElement {
     const batteries = [];
 
     if (!this._hass || !this._hass.states) {
-      return this._getDemoBatteries();
+      return [];
     }
 
     const states = this._hass.states;
@@ -842,146 +956,50 @@ class HADeviceHealth extends HTMLElement {
       });
     });
 
-    return batteries.length > 0 ? batteries : this._getDemoBatteries();
+    return batteries;
   }
 
   _getNetworkDevices() {
     const networks = {};
-
-    if (!this._hass || !this._hass.states) {
-      return this._getDemoNetworks();
+    if (!this._hass?.states) return networks;
+    const statesByDevice = new Map();
+    for (const [entityId, entry] of this._entityRegistry) {
+      const state = this._hass.states[entityId];
+      if (!entry.device_id || !state) continue;
+      if (!statesByDevice.has(entry.device_id)) statesByDevice.set(entry.device_id, []);
+      statesByDevice.get(entry.device_id).push(state);
     }
-
-    const states = this._hass.states;
-
-    // Method 1: Find entities with signal/rssi in entity ID
-    Object.keys(states).forEach((entityId) => {
-      if (entityId.includes("_signal") || entityId.includes("signal_strength") || entityId.includes("rssi")) {
-        const state = states[entityId];
-        const rssi = parseInt(state.state);
-        if (!isNaN(rssi)) {
-          const protocol = this._detectProtocol(entityId);
-          if (!networks[protocol]) networks[protocol] = [];
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),
-            rssi: rssi,
-            device: this._sanitize(state.attributes.device_name || this._extractDeviceName(entityId)),
-          });
-        }
-      }
-    });
-
-    // Method 2: Find entities with network ATTRIBUTES (mac, ip, ssid, rssi)
-    Object.entries(states).forEach(([entityId, state]) => {
-      const a = state.attributes || {};
-      const mac = a.mac || a.mac_address || a.host_mac || '';
-      const ip = a.ip || a.ip_address || a.local_ip || '';
-      const ssid = a.essid || a.ssid || a.wifi_name || '';
-      const rssi = a.rssi || a.signal_strength || a.wifi_signal;
-      const connType = a.connection_type || (a.is_wired ? 'ethernet' : (ssid ? 'wifi' : ''));
-
-      if (mac || ip || ssid || (rssi !== undefined && rssi !== null)) {
-        const protocol = connType === 'ethernet' ? 'Ethernet' : (ssid ? 'WiFi' : this._detectProtocol(entityId));
-        if (!networks[protocol]) networks[protocol] = [];
-        // Avoid duplicates
-        if (!networks[protocol].find(d => d.id === entityId)) {
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(a.friendly_name || this._formatEntityName(entityId)),
-            rssi: typeof rssi === 'number' ? rssi : null,
-            device: this._sanitize(a.device_name || a.friendly_name || this._extractDeviceName(entityId)),
-            mac: mac,
-            ip: ip,
-            ssid: ssid,
-            connectionType: connType
-          });
-        }
-      }
-    });
-
-    // Method 3: Add device_tracker entities with source_type 'router' (network-connected devices)
-    Object.entries(states).forEach(([entityId, state]) => {
-      if (entityId.startsWith('device_tracker.') && state.attributes.source_type === 'router') {
-        const a = state.attributes;
-        const protocol = 'WiFi';
-        if (!networks[protocol]) networks[protocol] = [];
-        if (!networks[protocol].find(d => d.id === entityId)) {
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(a.friendly_name || this._formatEntityName(entityId)),
-            rssi: a.rssi || null,
-            device: this._sanitize(a.friendly_name || this._extractDeviceName(entityId)),
-            mac: a.mac || '',
-            ip: a.ip || '',
-            ssid: a.essid || a.ssid || '',
-            connectionType: 'wifi'
-          });
-        }
-      }
-    });
-
-    // Method 4: Include ALL device_tracker entities (they represent network devices)
-    Object.entries(states).forEach(([entityId, state]) => {
-      if (entityId.startsWith('device_tracker.')) {
-        const a = state.attributes || {};
-        const protocol = a.source_type === 'router' ? 'WiFi' :
-                         a.source_type === 'bluetooth' ? 'Bluetooth' :
-                         a.source_type === 'bluetooth_le' ? 'BLE' : 'Network';
-        if (!networks[protocol]) networks[protocol] = [];
-        if (!networks[protocol].find(d => d.id === entityId)) {
-          networks[protocol].push({
-            id: entityId,
-            name: this._sanitize(a.friendly_name || this._formatEntityName(entityId)),
-            rssi: typeof a.rssi === 'number' ? a.rssi : null,
-            device: this._sanitize(a.friendly_name || this._extractDeviceName(entityId)),
-            mac: a.mac || a.mac_address || '',
-            ip: a.ip || a.ip_address || '',
-            ssid: a.essid || a.ssid || '',
-            connectionType: a.source_type || ''
-          });
-        }
-      }
-    });
-
-    return Object.keys(networks).length > 0 ? networks : this._getDemoNetworks();
-  }
-
-  _getDemoDevices() {
-    return [
-      { id: "device_tracker.phone", name: "Mobile Phone", type: "device_tracker", status: "online", lastSeen: new Date(Date.now() - 300000).toISOString(), uptime: "5 days", domain: "device_tracker" },
-      { id: "light.living_room", name: "Living Room Light", type: "light", status: "online", lastSeen: new Date(Date.now() - 60000).toISOString(), uptime: "30 days", domain: "light" },
-      { id: "switch.kitchen", name: "Kitchen Switch", type: "switch", status: "online", lastSeen: new Date(Date.now() - 120000).toISOString(), uptime: "30 days", domain: "switch" },
-      { id: "climate.bedroom", name: "Bedroom Thermostat", type: "climate", status: "offline", lastSeen: new Date(Date.now() - 3600000).toISOString(), uptime: "15 days", domain: "climate" },
-      { id: "sensor.garage", name: "Garage Sensor", type: "sensor", status: "unavailable", lastSeen: new Date(Date.now() - 86400000).toISOString(), uptime: "2 days", domain: "sensor" },
-    ];
-  }
-
-  _getDemoBatteries() {
-    return [
-      { id: "sensor.phone_battery", name: "Mobile Phone Battery", level: 78, lastChanged: new Date(Date.now() - 300000).toISOString(), device: "Mobile Phone" },
-      { id: "sensor.watch_battery", name: "Smart Watch Battery", level: 45, lastChanged: new Date(Date.now() - 7200000).toISOString(), device: "Smart Watch" },
-      { id: "sensor.remote_battery", name: "Remote Control Battery", level: 22, lastChanged: new Date(Date.now() - 86400000).toISOString(), device: "Remote Control" },
-      { id: "sensor.sensor1_battery", name: "Hallway Sensor Battery", level: 8, lastChanged: new Date(Date.now() - 172800000).toISOString(), device: "Hallway Sensor" },
-      { id: "sensor.keypad_battery", name: "Door Keypad Battery", level: 35, lastChanged: new Date(Date.now() - 3600000).toISOString(), device: "Door Keypad" },
-    ];
-  }
-
-  _getDemoNetworks() {
-    return {
-      "WiFi": [
-        { id: "sensor.phone_signal", name: "Mobile Phone", rssi: -45, device: "Mobile Phone" },
-        { id: "sensor.laptop_signal", name: "Laptop", rssi: -62, device: "Laptop" },
-        { id: "sensor.tv_signal", name: "Smart TV", rssi: -75, device: "Smart TV" },
-      ],
-      "Zigbee": [
-        { id: "sensor.light1_signal", name: "Bulb 1", rssi: -68, device: "Bulb 1" },
-        { id: "sensor.light2_signal", name: "Bulb 2", rssi: -72, device: "Bulb 2" },
-      ],
-      "Z-Wave": [
-        { id: "sensor.lock_signal", name: "Door Lock", rssi: -58, device: "Door Lock" },
-      ],
-    };
+    for (const device of this._deviceRegistry.values()) {
+      const states = statesByDevice.get(device.id) || [];
+      const connections = Array.isArray(device.connections) ? device.connections : [];
+      const types = new Set(connections.map(connection => connection[0]));
+      const attrs = states.map(state => state.attributes || {});
+      const sourceTypes = new Set(attrs.map(a => a.source_type));
+      const explicitType = attrs.map(a => String(a.connection_type || '').toLowerCase()).find(Boolean);
+      const ssid = attrs.map(a => a.essid || a.ssid || a.wifi_name).find(Boolean) || '';
+      const mac = connections.find(connection => connection[0] === 'mac')?.[1] || '';
+      const ip = attrs.map(a => a.ip || a.ip_address || a.local_ip).find(Boolean) || '';
+      let protocol = null;
+      if (sourceTypes.has('bluetooth_le') || explicitType === 'ble') protocol = 'BLE';
+      else if (types.has('bluetooth') || sourceTypes.has('bluetooth')) protocol = 'Bluetooth';
+      else if (types.has('zigbee') || explicitType === 'zigbee') protocol = 'Zigbee';
+      else if (explicitType === 'zwave' || explicitType === 'z-wave') protocol = 'Z-Wave';
+      else if (explicitType === 'ethernet' || attrs.some(a => a.is_wired === true)) protocol = 'Ethernet';
+      else if (explicitType === 'wifi' || ssid) protocol = 'WiFi';
+      else if (mac || ip || sourceTypes.has('router')) protocol = 'Other';
+      if (!protocol) continue;
+      const signal = states.find(state => /signal|rssi/i.test(state.entity_id || ''));
+      const value = signal ? Number(signal.state) : Number(attrs.map(a => a.rssi ?? a.signal_strength).find(v => v != null));
+      if (!networks[protocol]) networks[protocol] = [];
+      networks[protocol].push({
+        id: device.id,
+        name: this._sanitize(device.name_by_user || device.name || device.id),
+        device: this._sanitize(device.name_by_user || device.name || device.id),
+        rssi: Number.isFinite(value) && value < 0 ? value : null,
+        mac, ip, ssid, connectionType: protocol
+      });
+    }
+    return networks;
   }
 
   _generateAlerts() {
@@ -1033,9 +1051,9 @@ class HADeviceHealth extends HTMLElement {
     const diff = Date.now() - new Date(lastChanged).getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    if (days > 0) return `${days} days`;
-    if (hours > 0) return `${hours} hours`;
-    return `${Math.floor(diff / (1000 * 60))} minutes`;
+    if (days > 0) return `${days} ${this._t('elapsedDays')}`;
+    if (hours > 0) return `${hours} ${this._t('elapsedHours')}`;
+    return `${Math.floor(diff / (1000 * 60))} ${this._t('elapsedMinutes')}`;
   }
 
   _formatEntityName(entityId) {
@@ -1045,12 +1063,6 @@ class HADeviceHealth extends HTMLElement {
   _extractDeviceName(entityId) {
     const parts = entityId.split(".")[1].replace(/_battery|_signal|_battery_level|_rssi/g, "").split("_");
     return parts.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-  }
-
-  _detectProtocol(entityId) {
-    if (entityId.includes("zigbee")) return "Zigbee";
-    if (entityId.includes("zwave")) return "Z-Wave";
-    return "WiFi";
   }
 
   _getStatusColor(status) {
@@ -1248,12 +1260,47 @@ class HADeviceHealth extends HTMLElement {
     return `${pad}${this._yamlScalar(value)}`;
   }
 
+  _backgroundAlertMessage(message) {
+    const value = String(message ?? '');
+    const exact = {
+      'Battery alert': 'batteryAlert',
+      'Offline alert': 'offlineAlert',
+      'No numeric battery sensor entities were detected, so the battery automation cannot be generated.': 'noBatteryEntities',
+      'No monitored device entities were detected, so the offline automation cannot be generated.': 'noMonitoredEntities',
+      'Home Assistant state is not available yet. Open the card after Home Assistant finishes loading and try again.': 'haStateNotReady',
+      'automation.reload service called.': 'reloadCalled',
+    };
+    if (Object.prototype.hasOwnProperty.call(exact, value)) return this._t(exact[value]);
+    const patterns = [
+      [/^Detected (\d+) battery sensors\. The automation will use the first 150\.$/, 'batteryLimit', ['count']],
+      [/^Created automation (.+)\.$/, 'automationCreated', ['id']],
+      [/^Updated existing automation (.+)\.$/, 'automationUpdated', ['id']],
+      [/^Failed to create automation ([^:]+): ([\s\S]*)$/, 'automationCreateFailed', ['id', 'detail']],
+      [/^Failed to update automation ([^:]+): ([\s\S]*)$/, 'automationUpdateFailed', ['id', 'detail']],
+      [/^Automation generation failed: ([\s\S]*)$/, 'generationFailed', ['detail']],
+      [/^automation\.reload failed: ([\s\S]*)$/, 'reloadFailed', ['detail']],
+    ];
+    for (const [pattern, key, fields] of patterns) {
+      const match = value.match(pattern);
+      if (!match) continue;
+      const values = Object.fromEntries(fields.map((field, index) => [field, match[index + 1]]));
+      return this._t(key).replace(/\{(\w+)\}/g, (token, field) => values[field] ?? token);
+    }
+    return value;
+  }
+
+  _alertTypeLabel(type) {
+    const key = 'alert_type_' + type;
+    const label = this._t(key);
+    return label === key ? String(type).replace(/_/g, ' ') : label;
+  }
+
   _getBackgroundAutomationStatus(entityId) {
     const state = this._hass?.states?.[entityId];
-    if (!state) return "not created";
+    if (!state) return this._t('notCreated');
     const lastTriggered = state.attributes?.last_triggered;
-    const triggeredText = lastTriggered ? `, last triggered: ${new Date(lastTriggered).toLocaleString()}` : ", last triggered: never";
-    return `active${triggeredText}`;
+    const triggeredText = `, ${this._t('lastTriggered')}: ${lastTriggered ? new Date(lastTriggered).toLocaleString(this._lang) : this._t('never')}`;
+    return `${this._t('automationActive')}${triggeredText}`;
   }
 
   _renderBackgroundAlertsSection() {
@@ -1263,12 +1310,12 @@ class HADeviceHealth extends HTMLElement {
       <div class="automation-result-summary">
         ${this._backgroundAlertResult.results.map((result) => `
           <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
-            <strong>${_esc(result.label)}:</strong> ${_esc(result.message)}
+            <strong>${_esc(this._backgroundAlertMessage(result.label))}:</strong> ${_esc(this._backgroundAlertMessage(result.message))}
           </div>
         `).join("")}
         ${this._backgroundAlertResult.reload ? `
           <div class="automation-result automation-result-${this._backgroundAlertResult.reload.ok ? "success" : "error"}">
-            <strong>Reload:</strong> ${_esc(this._backgroundAlertResult.reload.message)}
+            <strong>${this._t('reload')}:</strong> ${_esc(this._backgroundAlertMessage(this._backgroundAlertResult.reload.message))}
           </div>
         ` : ""}
       </div>
@@ -1278,14 +1325,14 @@ class HADeviceHealth extends HTMLElement {
       <div class="background-alerts-section">
         <div class="background-alerts-header">
           <div>
-            <div class="background-alerts-title">Background alerts (24/7)</div>
-            <div class="background-alerts-note">Creates native Home Assistant automations so alerts keep working with this panel closed.</div>
+            <div class="background-alerts-title">${this._t('backgroundAlerts')}</div>
+            <div class="background-alerts-note">${this._t('backgroundNote')}</div>
           </div>
-          <button class="background-alerts-generate">Generate automations…</button>
+          ${this._hass?.user?.is_admin === true ? `<button class="background-alerts-generate">${this._t('generateAutomations')}</button>` : ""}
         </div>
         <div class="background-alerts-status">
-          <div><strong>Battery:</strong> ${_esc(batteryStatus)}</div>
-          <div><strong>Offline:</strong> ${_esc(offlineStatus)}</div>
+          <div><strong>${this._t('battery')}:</strong> ${_esc(batteryStatus)}</div>
+          <div><strong>${this._t('offline')}:</strong> ${_esc(offlineStatus)}</div>
         </div>
         ${resultHtml}
       </div>
@@ -1293,7 +1340,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _renderBackgroundAutomationDialog() {
-    if (!this._backgroundAlertDialog) return "";
+    if (!this._backgroundAlertDialog || this._hass?.user?.is_admin !== true) return "";
     const dialog = this._backgroundAlertDialog;
     const battery = dialog.automations?.[0];
     const offline = dialog.automations?.[1];
@@ -1301,58 +1348,58 @@ class HADeviceHealth extends HTMLElement {
 
     return `
       <div class="automation-dialog-backdrop">
-        <div class="automation-dialog" role="dialog" aria-modal="true" aria-label="Generate Device Health background automations">
-          <div class="automation-dialog-title">Background alerts (24/7)</div>
+        <div class="automation-dialog" role="dialog" aria-modal="true" aria-label="${this._t('previewDialog')}">
+          <div class="automation-dialog-title">${this._t('backgroundAlerts')}</div>
           <div class="automation-dialog-note">
-            Re-running this generator regenerates and updates the same automation ids, for example after adding devices.
+            ${this._t('previewNote')}
           </div>
 
           ${dialog.errors && dialog.errors.length ? `
             <div class="automation-dialog-errors">
-              ${dialog.errors.map((error) => `<div>${_esc(error)}</div>`).join("")}
+              ${dialog.errors.map((error) => `<div>${_esc(this._backgroundAlertMessage(error))}</div>`).join("")}
             </div>
           ` : ""}
 
           ${dialog.warnings && dialog.warnings.length ? `
             <div class="automation-dialog-warnings">
-              ${dialog.warnings.map((warning) => `<div>${_esc(warning)}</div>`).join("")}
+              ${dialog.warnings.map((warning) => `<div>${_esc(this._backgroundAlertMessage(warning))}</div>`).join("")}
             </div>
           ` : ""}
 
           <div class="automation-preview-grid">
             <div class="automation-preview-card">
-              <div class="automation-preview-title">automation 1 <code>${_esc(battery?.id || "")}</code></div>
-              <div>Trigger: numeric_state below ${_esc(dialog.batteryWarning)} over ${_esc(dialog.batteryEntityCount)} battery sensor entities.</div>
-              <div>Action: persistent_notification.create with entity name and current value.</div>
+              <div class="automation-preview-title">${this._t('automation')} 1 <code>${_esc(battery?.id || "")}</code></div>
+              <div>${this._t('batteryTriggerBefore')} ${_esc(dialog.batteryWarning)} ${this._t('triggerOver')} ${_esc(dialog.batteryEntityCount)} ${this._t('batterySensorEntities')}</div>
+              <div>${this._t('batteryAction')}</div>
             </div>
             <div class="automation-preview-card">
-              <div class="automation-preview-title">automation 2 <code>${_esc(offline?.id || "")}</code></div>
-              <div>Trigger: state to "unavailable" for ${_esc(dialog.offlineMinutes)} minutes over ${_esc(dialog.deviceEntityCount)} monitored device entities.</div>
-              <div>Action: persistent_notification.create with entity name.</div>
+              <div class="automation-preview-title">${this._t('automation')} 2 <code>${_esc(offline?.id || "")}</code></div>
+              <div>${this._t('offlineTriggerBefore')} "unavailable" ${this._t('triggerFor')} ${_esc(dialog.offlineMinutes)} ${this._t('elapsedMinutes')} ${this._t('triggerOver')} ${_esc(dialog.deviceEntityCount)} ${this._t('monitoredDeviceEntities')}</div>
+              <div>${this._t('offlineAction')}</div>
             </div>
           </div>
 
-          <label class="automation-yaml-label" for="background-automation-yaml">YAML preview</label>
+          <label class="automation-yaml-label" for="background-automation-yaml">${this._t('yamlPreview')}</label>
           <textarea id="background-automation-yaml" class="automation-yaml-preview" readonly spellcheck="false">${_esc(dialog.yaml || "")}</textarea>
 
           ${dialog.results ? `
             <div class="automation-dialog-results">
               ${dialog.results.map((result) => `
                 <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
-                  <strong>${_esc(result.label)}:</strong> ${_esc(result.message)}
+                  <strong>${_esc(this._backgroundAlertMessage(result.label))}:</strong> ${_esc(this._backgroundAlertMessage(result.message))}
                 </div>
               `).join("")}
               ${dialog.reload ? `
                 <div class="automation-result automation-result-${dialog.reload.ok ? "success" : "error"}">
-                  <strong>Reload:</strong> ${_esc(dialog.reload.message)}
+                  <strong>${this._t('reload')}:</strong> ${_esc(this._backgroundAlertMessage(dialog.reload.message))}
                 </div>
               ` : ""}
             </div>
           ` : ""}
 
           <div class="automation-dialog-actions">
-            <button class="automation-dialog-cancel" ${dialog.creating ? "disabled" : ""}>Cancel</button>
-            <button class="automation-dialog-create primary" ${createDisabled ? "disabled" : ""}>${dialog.creating ? "Creating..." : "Create"}</button>
+            <button class="automation-dialog-cancel" ${dialog.creating ? "disabled" : ""}>${this._t('cancel')}</button>
+            <button class="automation-dialog-create primary" ${createDisabled ? "disabled" : ""}>${dialog.creating ? this._t('creating') : this._t('create')}</button>
           </div>
         </div>
       </div>
@@ -1360,6 +1407,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _openBackgroundAutomationDialog() {
+    if (this._hass?.user?.is_admin !== true) return;
     try {
       if (!this._hass || !this._hass.states) {
         this._backgroundAlertDialog = {
@@ -1383,7 +1431,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   async _createBackgroundAlertAutomations() {
-    if (!this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
+    if (this._hass?.user?.is_admin !== true || !this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
 
     const dialog = {
       ...this._backgroundAlertDialog,
@@ -1437,6 +1485,12 @@ class HADeviceHealth extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
+    this._renderedLang = this._lang;
+    this._renderedIsAdmin = this._hass.user?.is_admin === true;
+    const focusedSearch = this.shadowRoot.activeElement?.matches('.search-box')
+      ? this.shadowRoot.activeElement : null;
+    const searchSelection = focusedSearch
+      ? [focusedSearch.selectionStart, focusedSearch.selectionEnd, focusedSearch.selectionDirection] : null;
     this._lastRenderTime = Date.now();
     // Save scroll positions before rebuild
     const oldList = this.shadowRoot.querySelector('[data-device-list]');
@@ -1638,9 +1692,10 @@ class HADeviceHealth extends HTMLElement {
         letter-spacing: 0.3px;
       }
 
-      .status-online { background: var(--sc); }
-      .status-offline { background: var(--ec); }
-      .status-unavailable { background: #94A3B8; }
+      .status-online { background: #047857; }
+      .status-offline { background: #B91C1C; }
+      .status-unavailable { background: #64748B; }
+      .status-unknown { background: #475569; }
 
       .table-wrapper {
         overflow-x: auto;
@@ -2198,7 +2253,9 @@ class HADeviceHealth extends HTMLElement {
     const batteries = this._getBatteryDevices();
     const networks = this._getNetworkDevices();
     const online = devices.filter((d) => d.status === "online").length;
-    const availability = ((online / devices.length) * 100).toFixed(1);
+    const unlinkedEntities = this._unlinkedEntityCount();
+    const observed = devices.filter(device => device.status !== 'unknown').length;
+    const availability = observed ? `${((online / observed) * 100).toFixed(1)}%` : 'N/A';
 
     const batteryNeedingAttention = batteries.filter((b) => b.level < this._config.battery_warning).length;
 
@@ -2243,20 +2300,21 @@ class HADeviceHealth extends HTMLElement {
                 <option value="online" ${this._deviceFilter === 'online' ? 'selected' : ''}>${this._t('online')}</option>
                 <option value="offline" ${this._deviceFilter === 'offline' ? 'selected' : ''}>${this._t('offline')}</option>
                 <option value="unavailable" ${this._deviceFilter === 'unavailable' ? 'selected' : ''}>${this._t('unavailable')}</option>
+                <option value="unknown" ${this._deviceFilter === 'unknown' ? 'selected' : ''}>${this._t('unknown')}</option>
               </select>
             </div>
             <div class="control-group">
               <button class="toggle-grouping ${this._groupByDomain ? 'active' : ''}">${this._t('toggleGrouping')}</button>
             </div>
             <div class="control-group">
-              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">Show:</span>
+              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
               <select class="page-size-selector" data-tab="devices">
                 ${[15,30,50,100].map(n => `<option value="${n}" ${this._pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
               </select>
             </div>
           </div>
           <div class="stats">
-            ${this._t('totalDevices')}: ${devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}%
+            ${this._t('totalDevices')}: ${devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}${unlinkedEntities === null ? '' : ` | ${this._t('unlinkedEntities')}: ${unlinkedEntities}`}
           </div>
           <div class="table-wrapper">
           <table class="device-table">
@@ -2277,7 +2335,7 @@ class HADeviceHealth extends HTMLElement {
                       <td>${_esc(device.name)}</td>
                       <td>${_esc(device.type)}</td>
                       <td><span class="status-badge status-${_esc(device.status)}">${_esc(device.status.toUpperCase())}</span></td>
-                      <td>${new Date(device.lastSeen).toLocaleString()}</td>
+                      <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString(this._lang) : "—"}</td>
                       <td>${_esc(device.uptime)}</td>
                     </tr>`
                 )
@@ -2317,7 +2375,7 @@ class HADeviceHealth extends HTMLElement {
               </select>
             </div>
             <div class="control-group">
-              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">Show:</span>
+              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
               <select class="page-size-selector" data-tab="batteries">
                 ${[15,30,50,100].map(n => `<option value="${n}" ${this._batteryPageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
               </select>
@@ -2336,7 +2394,7 @@ class HADeviceHealth extends HTMLElement {
                       <div class="battery-icon">🔋</div>
                       <div class="battery-info">
                         <div class="battery-name">${_esc(battery.name)}</div>
-                        <div class="battery-label">${this._t('lastChanged')}: ${new Date(battery.lastChanged).toLocaleDateString()}</div>
+                        <div class="battery-label">${this._t('lastChanged')}: ${new Date(battery.lastChanged).toLocaleDateString(this._lang)}</div>
                       </div>
                       <div class="battery-right">
                         <div class="battery-bar">
@@ -2380,7 +2438,7 @@ class HADeviceHealth extends HTMLElement {
         <div class="tab-content active">
           <div class="controls">
             <div class="control-group">
-              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">Show:</span>
+              <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
               <select class="page-size-selector" data-tab="network">
                 ${[15,30,50,100].map(n => `<option value="${n}" ${this._networkPageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
               </select>
@@ -2402,6 +2460,7 @@ class HADeviceHealth extends HTMLElement {
           </div>
           <canvas id="signal-chart" width="400" height="250"></canvas>
       `;
+      if (!allNetDevices.length) html += `<div class="empty-state">${this._t('noNetworkEvidence')}</div>`;
 
       // Group paginated devices by protocol for display
       let lastProto = '';
@@ -2459,7 +2518,7 @@ class HADeviceHealth extends HTMLElement {
         <div class="tab-content active">
           <div class="controls">
             <div class="control-group">
-              <span style="font-size: 13px; color: var(--ts);">${this._t('pageSize')}:</span>
+              <span style="font-size: 13px; color: var(--ts);">${this._t('itemsPerPage')}:</span>
               <select class="page-size-selector" data-tab="alerts">
                 <option value="10" ${this._alertsPageSize === 10 ? 'selected' : ''}>10</option>
                 <option value="15" ${this._alertsPageSize === 15 ? 'selected' : ''}>15</option>
@@ -2482,9 +2541,9 @@ class HADeviceHealth extends HTMLElement {
           html += `
             <div class="alert-item alert-${_esc(alert.severity)}">
               <div class="alert-text">
-                <div class="alert-type">${_esc(alert.type.toUpperCase().replace(/_/g, " "))}</div>
+                <div class="alert-type">${_esc(this._alertTypeLabel(alert.type).toUpperCase())}</div>
                 <div>${_esc(alert.name)}</div>
-                <div class="alert-time">${new Date(alert.timestamp).toLocaleString()}</div>
+                <div class="alert-time">${new Date(alert.timestamp).toLocaleString(this._lang)}</div>
               </div>
               <div class="alert-actions">
                 <button class="alert-dismiss" data-alert-id="${_esc(alertId)}">${this._t('dismiss')}</button>
@@ -2511,8 +2570,8 @@ class HADeviceHealth extends HTMLElement {
           .map(
             (alert) =>
               `<div style="padding: 8px 12px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "var(--ec)" : alert.severity === "warning" ? "var(--wc)" : "var(--pc)"}; margin-bottom: 4px; border-radius: var(--radius-xs); background: var(--bg);">
-                <div style="font-size: 12px; font-weight: 500; color: var(--tc);">${_esc(alert.type.replace(/_/g, ' '))} — ${_esc(alert.name)}</div>
-                <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${new Date(alert.timestamp).toLocaleString()}</div>
+                <div style="font-size: 12px; font-weight: 500; color: var(--tc);">${_esc(this._alertTypeLabel(alert.type))} — ${_esc(alert.name)}</div>
+                <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${new Date(alert.timestamp).toLocaleString(this._lang)}</div>
               </div>`
           )
           .join("")}
@@ -2530,7 +2589,7 @@ class HADeviceHealth extends HTMLElement {
 
 /* Donation footer — diamond top */
 .donate-section {  margin: 24px 0 4px; padding: 20px 24px; position: relative; overflow: hidden;  background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(236,72,153,0.06));  border: 1px solid rgba(99,102,241,0.18); border-radius: var(--bento-radius-md, 18px);  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px;  font-family: 'Inter', -apple-system, sans-serif;}
-.donate-section::before {  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;  background: linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899);}
+.donate-section:not([data-source="own-card"])::before {  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;  background: linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899);}
 .donate-section .donate-text { flex: 1; min-width: 240px; }
 .donate-section h3 {  margin: 0 0 6px; font-size: 16px; font-weight: 700; letter-spacing: -0.02em;  background: linear-gradient(135deg, #6366f1, #ec4899);  -webkit-background-clip: text; background-clip: text; color: transparent;}
 .donate-section p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--bento-text-secondary, #57534e); letter-spacing: -0.005em; }
@@ -2613,10 +2672,18 @@ ${style}
           .stat-val, .kpi-val, .metric-val { font-size: 16px; }
         }
 
-</style>${_renderLocalIntro()}${html}${_LOCAL_DONATE_HTML}`
+</style>${_renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
     _bindLocalIntroDismiss(this.shadowRoot);
+    _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
     this._drawSignalChart();
+    if (focusedSearch) {
+      const search = this.shadowRoot.querySelector('.search-box');
+      if (search) {
+        search.focus({ preventScroll: true });
+        search.setSelectionRange(...searchSelection);
+      }
+    }
 
     // Restore scroll positions after DOM rebuild
     this._scrollFrame = requestAnimationFrame(() => {
@@ -2656,8 +2723,7 @@ ${style}
     // Update device count if visible
     const deviceCount = this.shadowRoot.querySelector('[data-device-count]');
     if (deviceCount) {
-      const devices = Object.values(this._hass.states).filter(s => s.entity_id.includes('device_tracker'));
-      deviceCount.textContent = devices.length;
+      deviceCount.textContent = this._getDevices().length;
     }
 
     // For now, if active tab content changes significantly, re-render
@@ -2923,7 +2989,7 @@ ${style}
   }
 
   getCardSize() { return 6; }
-  getGridOptions() { return { rows: 6, columns: 12, min_rows: 3, min_columns: 6 }; }
+  getGridOptions() { return { columns: 12, min_rows: 3, min_columns: 6 }; }
 
   static getStubConfig() {
     return {

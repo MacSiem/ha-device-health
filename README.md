@@ -4,23 +4,28 @@
 
 Monitor the health of your Home Assistant devices from one Lovelace card:
 battery levels, availability and alerts. Zero configuration — add the card and it
-scans your entities automatically.
+joins Home Assistant's device and entity registries automatically.
 
 [![Version](https://img.shields.io/github/v/release/MacSiem/ha-device-health)](https://github.com/MacSiem/ha-device-health/releases) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## How it works
 
-**Short version: it works automatically.** The card reads your existing entities —
-no extra integration, no YAML:
+**Short version: it works automatically.** The card reads device and entity
+registries through your Home Assistant connection — no extra integration or YAML:
 
 1. **Batteries.** An entity counts as a battery *level* only when it has
    `device_class: battery` or a `%` unit **and** a numeric 0–100 state. Helper
    entities from Battery+/Battery Notes (like `*_battery_type` or
    `*_battery_quantity`) are excluded, so counts and labels never pollute the list
    (fixed in v4.2.3).
-2. **Availability.** Devices with `unavailable`/`unknown` entities are surfaced so
-   you spot dead sensors and dropped integrations quickly.
-3. **Alerts.** Threshold-based alerts (e.g. low battery) with a history view.
+2. **Availability.** Each registered device appears once. A device with no current
+   entity state is marked unknown, not failed; `off` is only treated as offline
+   when an explicit connectivity binary sensor says it is disconnected.
+3. **Network evidence.** Bluetooth and Zigbee come from registry connections;
+   Wi-Fi needs an explicit Wi-Fi connection type or SSID. A generic MAC or IP
+   goes to Other, not Wi-Fi. Entity states without a registered device are
+   counted separately and never counted as physical devices.
+4. **Alerts.** Threshold-based alerts (e.g. low battery) with a history view.
 
 ### What is automatic vs. manual
 
@@ -36,8 +41,8 @@ no extra integration, no YAML:
 |---|---|
 | ![Batteries tab, light theme](docs/screenshots/card-batteries-light.png) | ![Batteries tab, dark theme](docs/screenshots/card-batteries-dark.png) |
 
-*The Batteries tab: levels sorted worst-first with a needs-attention summary.
-Dark mode follows your Home Assistant theme automatically.*
+*The Batteries tab with synthetic sensor names and levels, sorted worst-first
+with a needs-attention summary. Dark mode follows your Home Assistant theme.*
 
 ## Installation
 
@@ -59,6 +64,10 @@ That's it — no options are required.
 **Do I have to configure anything?**
 No. The card discovers batteries and devices from your existing entities.
 
+**Why is a device marked unknown?**
+The device is registered in HA but has no current entity state to measure.
+The card will not invent a health result or Wi-Fi classification.
+
 **Why doesn't my battery show up?**
 It needs `device_class: battery` or a `%` unit and a numeric 0–100 state. Text
 states ("low"/"ok") and count entities are intentionally excluded.
@@ -76,6 +85,14 @@ See [CHANGELOG.md](CHANGELOG.md).
 - [Buy Me a Coffee](https://buymeacoffee.com/macsiem)
 - [PayPal](https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W)
 
+The optional in-card support link is shown only to administrators. Dismiss it in the card or set `show_support: false` in the card configuration.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Privacy and data
+
+The card reads Home Assistant states and registry metadata to group devices and show battery and availability information. Device and entity labels can identify your home. Remove those labels and identifiers from screenshots or bug reports.
+
+See [SECURITY.md](SECURITY.md) for safe vulnerability reporting and [NOTICE](NOTICE) for licensing notices.
