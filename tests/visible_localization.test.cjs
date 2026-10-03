@@ -71,14 +71,16 @@ test('each read-only tab translates the page-size caption without changing its s
 });
 
 test('relative elapsed time follows card locale with unchanged elapsed values',()=>{
- const {dom,card,hass}=fixture();
+ const {dom,card,hass,calls}=fixture();
  try {
   dom.window.Date.now=()=>Date.parse('2026-10-03T12:00:00Z');
+  card._registryLoadedAt=dom.window.Date.now();
   card.hass={...hass,language:'pl'};
   assert.equal(card._calculateUptime('2026-10-01T12:00:00Z'),'2 dni');
   assert.equal(card._calculateUptime('2026-10-03T09:00:00Z'),'3 godz.');
   assert.equal(card._calculateUptime('2026-10-03T11:55:00Z'),'5 min');
   card.hass=hass;assert.equal(card._calculateUptime('2026-10-01T12:00:00Z'),'2 days');
+  assert.equal(calls.length,0);
  } finally {dom.window.close();}
 });
 
