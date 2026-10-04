@@ -19,7 +19,7 @@ function fixture() {
   return { dom, card, hass, calls };
 }
 
-test('device status and absent-model label translate while preserving authored model and registry data', () => {
+test('absent-model label translates while preserving authored model and registry data', () => {
   const { dom, card, hass, calls } = fixture();
   try {
     const registry = JSON.stringify(Array.from(card._deviceRegistry));
@@ -30,9 +30,20 @@ test('device status and absent-model label translate while preserving authored m
     const authored = rows.find(row => row.cells[0].textContent === 'QA Authored model');
     assert.equal(missing.cells[1].textContent, 'Urządzenie');
     assert.equal(authored.cells[1].textContent, 'device');
-    assert.equal(missing.querySelector('.status-unknown').textContent, 'BRAK STANU ENCJI');
     assert.equal(JSON.stringify(Array.from(card._deviceRegistry)), registry);
     assert.equal(JSON.stringify(card._getDevices()), before);
+    card.hass = hass;
+    assert.equal(calls.length, 0);
+  } finally { dom.window.close(); }
+});
+
+test('unknown device status translates without turning absence of entity state into offline health', () => {
+  const { dom, card, hass, calls } = fixture();
+  try {
+    card.hass = { ...hass, language: 'pl' };
+    assert.equal(card.shadowRoot.querySelector('.status-unknown').textContent, 'BRAK STANU ENCJI');
+    assert.equal(card._getDevices()[0].status, 'unknown');
+    assert.equal(card.shadowRoot.querySelector('.status-offline'), null);
     card.hass = hass;
     assert.equal(card.shadowRoot.querySelector('.status-unknown').textContent, 'NO ENTITY STATE');
     assert.equal(calls.length, 0);
