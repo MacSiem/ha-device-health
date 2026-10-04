@@ -12,6 +12,8 @@
 
 ## 4.2.9 (2026-09-29)
 
+- Correct the Polish and English first-run steps to describe the available search, status filter, tabs and device table.
+
 - Require an administrator before opening or creating background alert automations; household users retain read-only health views.
 
 - Restore the selected tab after reloading a direct HA panel; ignore invalid saved tab values.
