@@ -593,6 +593,9 @@ class HADeviceHealth extends HTMLElement {
         editorTitle: "Title",
         editorBatteryWarning: "Battery warning %",
         editorBatteryCritical: "Battery critical %",
+        genericDevice: "Device",
+        networkOther: "Other",
+        networkGroup: "{protocol} Network",
         previewDialog: "Generate Device Health background automations",
         previewNote: "Re-running this generator regenerates and updates the same automation ids, for example after adding devices.",
         automation: "automation",
@@ -687,6 +690,9 @@ class HADeviceHealth extends HTMLElement {
         editorTitle: "Tytuł",
         editorBatteryWarning: "Ostrzeżenie baterii (%)",
         editorBatteryCritical: "Krytyczny poziom baterii (%)",
+        genericDevice: "Urządzenie",
+        networkOther: "Inne",
+        networkGroup: "Sieć: {protocol}",
         previewDialog: "Podgląd automatyzacji Device Health",
         previewNote: "Ponowne uruchomienie generatora odtwarza i aktualizuje te same identyfikatory automatyzacji, na przykład po dodaniu urządzeń.",
         automation: "automatyzacja",
@@ -781,7 +787,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _t(key) {
-    const lang = this._hass?.language || 'en';
+    const lang = this._hass?.language?.startsWith('pl') ? 'pl' : 'en';
     const T = HADeviceHealth._translations;
     return (T[lang] || T['en'])[key] || T['en'][key] || key;
   }
@@ -2339,8 +2345,8 @@ class HADeviceHealth extends HTMLElement {
                   (device) =>
                     `<tr>
                       <td>${_esc(device.name)}</td>
-                      <td>${_esc(device.type)}</td>
-                      <td><span class="status-badge status-${_esc(device.status)}">${_esc(device.status.toUpperCase())}</span></td>
+                      <td>${_esc(this._deviceRegistry.get(device.id)?.model ? device.type : this._t('genericDevice'))}</td>
+                      <td><span class="status-badge status-${_esc(device.status)}">${_esc(this._t(device.status).toUpperCase())}</span></td>
                       <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString(this._lang) : "—"}</td>
                       <td>${_esc(device.uptime)}</td>
                     </tr>`
@@ -2426,6 +2432,7 @@ class HADeviceHealth extends HTMLElement {
 
     // Network Tab
     if (this._activeTab === "network") {
+      const protocolLabel = protocol => protocol === 'Other' ? this._t('networkOther') : protocol;
       const protocolCounts = {};
       let totalNetDevices = 0;
       const allNetDevices = [];
@@ -2457,7 +2464,7 @@ class HADeviceHealth extends HTMLElement {
         html += `
           <div class="network-stat">
             <div class="network-stat-value">${protocolCounts[protocol]}</div>
-            <div class="network-stat-label">${_esc(protocol)} ${this._t('networkDevices')}</div>
+            <div class="network-stat-label">${_esc(protocolLabel(protocol))} ${this._t('networkDevices')}</div>
           </div>
         `;
       });
@@ -2473,7 +2480,7 @@ class HADeviceHealth extends HTMLElement {
       paginatedNet.forEach((device) => {
         if (device.protocol !== lastProto) {
           lastProto = device.protocol;
-          html += `<div class="section-title">${_esc(device.protocol)} Network</div>`;
+          html += `<div class="section-title">${_esc(this._t('networkGroup').replace('{protocol}', () => protocolLabel(device.protocol)))}</div>`;
         }
         const hasRssi = device.rssi !== null && device.rssi !== undefined && !isNaN(device.rssi);
         const color = hasRssi ? this._getSignalColor(device.rssi) : '#94a3b8';
@@ -2484,7 +2491,7 @@ class HADeviceHealth extends HTMLElement {
         if (device.mac) details.push('<code style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:3px;">' + _esc(device.mac) + '</code>');
         if (device.ip) details.push('IP: ' + _esc(device.ip));
         if (device.ssid) details.push('\u{1F4F6} ' + _esc(device.ssid));
-        if (device.connectionType) details.push(_esc(device.connectionType));
+        if (device.connectionType) details.push(_esc(protocolLabel(device.connectionType)));
 
         html += `
           <div style="margin-bottom: 10px; padding: 8px; border: 1px solid var(--dc); border-radius: 8px;">

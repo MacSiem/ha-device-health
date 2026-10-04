@@ -63,6 +63,8 @@ The default heading and visual editor follow your Home Assistant language
 (English or Polish). Set `title` to keep your own heading in either language;
 leave it unset to use the translated default. Changing language preserves your
 editor draft, thresholds and text selection.
+Device status and network group captions use the same language; device names,
+authored models and connection classifications are retained.
 
 ## FAQ
 
