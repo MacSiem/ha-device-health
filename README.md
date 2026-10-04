@@ -59,6 +59,11 @@ type: custom:ha-device-health
 
 That's it — no options are required.
 
+The default heading and visual editor follow your Home Assistant language
+(English or Polish). Set `title` to keep your own heading in either language;
+leave it unset to use the translated default. Changing language preserves your
+editor draft, thresholds and text selection.
+
 ## FAQ
 
 **Do I have to configure anything?**

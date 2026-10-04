@@ -590,6 +590,9 @@ class HADeviceHealth extends HTMLElement {
   static get _translations() {
     return {
       en: {
+        editorTitle: "Title",
+        editorBatteryWarning: "Battery warning %",
+        editorBatteryCritical: "Battery critical %",
         previewDialog: "Generate Device Health background automations",
         previewNote: "Re-running this generator regenerates and updates the same automation ids, for example after adding devices.",
         automation: "automation",
@@ -681,6 +684,9 @@ class HADeviceHealth extends HTMLElement {
         next: "Next",
       },
       pl: {
+        editorTitle: "Tytuł",
+        editorBatteryWarning: "Ostrzeżenie baterii (%)",
+        editorBatteryCritical: "Krytyczny poziom baterii (%)",
         previewDialog: "Podgląd automatyzacji Device Health",
         previewNote: "Ponowne uruchomienie generatora odtwarza i aktualizuje te same identyfikatory automatyzacji, na przykład po dodaniu urządzeń.",
         automation: "automatyzacja",
@@ -2261,7 +2267,7 @@ class HADeviceHealth extends HTMLElement {
 
     let html = `
       <div class="card">
-        <div class="card-header">${_esc(this._config.title)}</div>
+        <div class="card-header">${_esc(this._config.title ?? this._t('deviceHealth'))}</div>
         <div class="tabs">
           <button class="tab-btn ${this._activeTab === "devices" ? "active" : ""}" data-tab="devices">${this._t('devices')}</button>
           <button class="tab-btn ${this._activeTab === "batteries" ? "active" : ""}" data-tab="batteries">${this._t('batteries')}</button>
@@ -2994,7 +3000,6 @@ ${style}
   static getStubConfig() {
     return {
       type: "custom:ha-device-health",
-      title: "Device Health",
       battery_warning: 30,
       battery_critical: 10,
       offline_alert_minutes: 60,
@@ -3029,10 +3034,22 @@ class HaDeviceHealthEditor extends HTMLElement {
     this._config = { ...config };
     this._render();
   }
+  set hass(hass) {
+    this._hass = hass;
+    const lang = hass?.language?.startsWith('pl') ? 'pl' : 'en';
+    if (lang !== this._renderedLanguage) this._render();
+  }
   _dispatch() {
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
   }
   _render() {
+    const lang = this._hass?.language?.startsWith('pl') ? 'pl' : 'en';
+    const labels = HADeviceHealth._translations[lang];
+    const active = this.shadowRoot.activeElement;
+    const focus = active?.tagName === 'INPUT' ? {
+      id: active.id, start: active.selectionStart, end: active.selectionEnd,
+      direction: active.selectionDirection,
+    } : null;
     this.shadowRoot.innerHTML = `
       <style>
             :host { display:block; padding:16px; }
@@ -3040,23 +3057,24 @@ class HaDeviceHealthEditor extends HTMLElement {
             input { outline:none; transition:border-color .2s; }
             input:focus { border-color:var(--bento-primary, var(--primary-color,#3b82f6)); }
         </style>
-      <h3>Device Health</h3>
+      <h3>${_esc(labels.deviceHealth)}</h3>
             <div style="margin-bottom:12px;">
-              <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Title</label>
-              <input type="text" id="cf_title" value="${_esc(this._config?.title || 'Device Health')}"
+              <label for="cf_title" style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">${_esc(labels.editorTitle)}</label>
+              <input type="text" id="cf_title" value="${_esc(this._config?.title ?? '')}" placeholder="${_esc(labels.deviceHealth)}"
                 style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
             </div>
             <div style="margin-bottom:12px;">
-              <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Battery warning %</label>
-              <input type="text" id="cf_battery_warning" value="${_esc(this._config?.battery_warning || '30')}"
+              <label for="cf_battery_warning" style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">${_esc(labels.editorBatteryWarning)}</label>
+              <input type="text" id="cf_battery_warning" value="${_esc(this._config?.battery_warning ?? '30')}"
                 style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
             </div>
             <div style="margin-bottom:12px;">
-              <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Battery critical %</label>
-              <input type="text" id="cf_battery_critical" value="${_esc(this._config?.battery_critical || '10')}"
+              <label for="cf_battery_critical" style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">${_esc(labels.editorBatteryCritical)}</label>
+              <input type="text" id="cf_battery_critical" value="${_esc(this._config?.battery_critical ?? '10')}"
                 style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
             </div>
     `;
+        this._renderedLanguage = lang;
         const f_title = this.shadowRoot.querySelector('#cf_title');
         if (f_title) f_title.addEventListener('input', (e) => {
           this._config = { ...this._config, title: e.target.value };
@@ -3072,6 +3090,13 @@ class HaDeviceHealthEditor extends HTMLElement {
           this._config = { ...this._config, battery_critical: e.target.value };
           this._dispatch();
         });
+        if (focus) {
+          const input = this.shadowRoot.getElementById(focus.id);
+          if (input) {
+            input.focus();
+            input.setSelectionRange(focus.start, focus.end, focus.direction);
+          }
+        }
   }
   connectedCallback() { this._render(); }
 }
