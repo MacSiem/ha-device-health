@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Show registry loading and errors with immediate explicit retry. Discard stale registry responses and health history across account/connection changes, and refresh names and bindings on native registry events; unsubscribe on disconnect.
+
 - Refresh device status, network signal and the unlinked count on ordinary Home Assistant state and attribute changes. Alert once per physical device using its lowest battery reading, and record continuous incidents once; recovery enables a new alert after acknowledgement.
 - Measure connectivity alert delay from the connectivity failure itself. Show unknown elapsed time for invalid dates and display disabled, unavailable and unknown background automation states accurately.
 

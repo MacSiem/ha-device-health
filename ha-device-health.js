@@ -548,6 +548,10 @@ class HADeviceHealth extends HTMLElement {
     this._registryStatus = 'idle';
     this._registryEpoch = 0;
     this._registrySession = null;
+    this._registryConnection = null;
+    this._registryUnsubs = [];
+    this._registrySubscriptionEpoch = 0;
+    this._registryDirty = false;
     this._activeTab = "devices";
     // Direct HA panels do not call Lovelace setConfig.
     try {
@@ -856,6 +860,7 @@ class HADeviceHealth extends HTMLElement {
     const registrySession = this._readSession(hass);
     const registrySessionChanged = this._registrySession && !this._sameReadSession(this._registrySession, registrySession);
     if (registrySessionChanged) {
+      this._stopRegistryUpdates();
       this._registryEpoch++;
       this._registryLoading = null;
       this._registryLoadedAt = 0;
@@ -872,6 +877,7 @@ class HADeviceHealth extends HTMLElement {
     this._registrySession = registrySession;
     this._hass = hass;
     this._loadRegistries();
+    this._subscribeRegistryUpdates();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
     if (this._firstRender) {
       this._firstRender = false;
@@ -928,6 +934,33 @@ class HADeviceHealth extends HTMLElement {
     return a.connection === b.connection && a.userId === b.userId && a.admin === b.admin;
   }
 
+  _stopRegistryUpdates() {
+    this._registrySubscriptionEpoch++;
+    this._registryConnection = null;
+    for (const unsubscribe of this._registryUnsubs) unsubscribe();
+    this._registryUnsubs = [];
+    this._registryDirty = false;
+  }
+
+  _subscribeRegistryUpdates() {
+    const connection = this._hass?.connection;
+    if (!this.isConnected || !connection?.subscribeEvents || this._registryConnection === connection) return;
+    this._registryConnection = connection;
+    const session = this._readSession();
+    const epoch = this._registrySubscriptionEpoch;
+    const current = () => this.isConnected && epoch === this._registrySubscriptionEpoch && this._sameReadSession(session, this._readSession());
+    for (const type of ['device_registry_updated', 'entity_registry_updated']) {
+      Promise.resolve(connection.subscribeEvents(() => {
+        if (!current()) return;
+        if (this._registryLoading) this._registryDirty = true;
+        else this._loadRegistries(true);
+      }, type)).then(unsubscribe => {
+        if (current()) this._registryUnsubs.push(unsubscribe);
+        else unsubscribe();
+      }).catch(() => { /* Periodic reads and explicit retry remain available. */ });
+    }
+  }
+
   _loadRegistries(explicitRetry = false) {
     if (!this._hass?.callWS || this._registryLoading) return;
     if (!explicitRetry && (Date.now() < this._registryRetryAt || Date.now() - this._registryLoadedAt < 300000)) return;
@@ -936,6 +969,7 @@ class HADeviceHealth extends HTMLElement {
     const epoch = ++this._registryEpoch;
     const current = () => this.isConnected && epoch === this._registryEpoch && this._sameReadSession(session, this._readSession());
     this._registryStatus = 'loading';
+    this._registryDirty = false;
     const pending = Promise.resolve().then(() => Promise.all([
       hass.callWS({ type: 'config/entity_registry/list' }),
       hass.callWS({ type: 'config/device_registry/list' })
@@ -954,7 +988,11 @@ class HADeviceHealth extends HTMLElement {
       this._registryStatus = 'error';
       this._registryRetryAt = Date.now() + 30000;
       this._render();
-    }).finally(() => { if (this._registryLoading === pending) this._registryLoading = null; });
+    }).finally(() => {
+      if (this._registryLoading !== pending) return;
+      this._registryLoading = null;
+      if (current() && this._registryDirty) this._loadRegistries(true);
+    });
     this._registryLoading = pending;
     if (explicitRetry) this._render();
     return pending;
@@ -3136,6 +3174,7 @@ ${style}
   }
 
   disconnectedCallback() {
+    this._stopRegistryUpdates();
     this._registryEpoch++;
     this._registryLoading = null;
     this._registryLoadedAt = 0;
