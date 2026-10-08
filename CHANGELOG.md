@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Prevent duplicate background automation writes while Home Assistant is responding. Stop further writes and discard stale results after administrator role or account changes; ordinary language updates preserve the pending operation.
+
 - Translate device status, the absent-model fallback and network group labels without changing authored models or connection classification. Use the Polish dictionary for regional Polish Home Assistant language settings as well.
 
 - Translate the visual editor and implicit default heading using Home Assistant's language. Preserve authored titles, editor drafts, caret selection and configuration events; display an explicitly configured zero battery threshold unchanged.

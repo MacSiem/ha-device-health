@@ -62,3 +62,59 @@ test('ordinary HA and language updates preserve an authorized pending operation'
     assert.equal(card._backgroundAlertResult.results.every(r => r.ok), true);
   } finally { finish(); dom.window.close(); }
 });
+
+test('losing and regaining admin before a reply never resumes the cancelled operation', async () => {
+  const { dom, card, posts, services, finish } = setup();
+  try {
+    const first = card._createBackgroundAlertAutomations();
+    const hass = card._hass;
+    card.hass = { ...hass, user: { id: 'qa-admin', is_admin: false } };
+    card.hass = hass;
+    finish(); await first;
+    assert.equal(posts.length, 1);
+    assert.deepEqual(services, []);
+    assert.equal(card._backgroundAlertDialog, null);
+    card._openBackgroundAutomationDialog();
+    assert.ok(card._backgroundAlertDialog);
+    assert.equal(card._backgroundAlertDialog.creating, undefined);
+  } finally { finish(); dom.window.close(); }
+});
+
+test('failed writes report failures, skip reload and permit a successful retry', async () => {
+  const { dom, card, posts, services, finish } = setup();
+  try {
+    card._hass.callApi = async (...args) => { posts.push(args); throw Error('QA denied'); };
+    await card._createBackgroundAlertAutomations();
+    assert.equal(posts.length, 2);
+    assert.deepEqual(services, []);
+    assert.equal(card._backgroundAlertDialog.creating, false);
+    assert.equal(card._backgroundAlertResult.results.every(r => !r.ok), true);
+    assert.match(card.shadowRoot.textContent, /QA denied/);
+    card._hass.callApi = async (...args) => { posts.push(args); };
+    await card._createBackgroundAlertAutomations();
+    assert.equal(posts.length, 4);
+    assert.deepEqual(services, [['automation', 'reload']]);
+    assert.equal(card._backgroundAlertResult.results.every(r => r.ok), true);
+  } finally { finish(); dom.window.close(); }
+});
+
+test('partial success and reload failure stay truthful and release the pending guard', async () => {
+  const { dom, card, posts, services, finish } = setup();
+  try {
+    card._hass.callApi = async (...args) => {
+      posts.push(args);
+      if (args[1] === 'config/automation/config/qa_offline') throw Error('QA offline denied');
+    };
+    card._hass.callService = async (...args) => { services.push(args); throw Error('QA reload denied'); };
+    await card._createBackgroundAlertAutomations();
+    assert.deepEqual(Array.from(card._backgroundAlertResult.results,r=>r.ok), [true,false]);
+    assert.equal(card._backgroundAlertResult.reload.ok, false);
+    assert.match(card.shadowRoot.textContent, /QA reload denied/);
+    assert.deepEqual(services, [['automation', 'reload']]);
+    card._hass.callService = async (...args) => { services.push(args); };
+    await card._createBackgroundAlertAutomations();
+    assert.equal(posts.length, 4);
+    assert.equal(services.length, 2);
+    assert.equal(card._backgroundAlertResult.reload.ok, true);
+  } finally { finish(); dom.window.close(); }
+});
