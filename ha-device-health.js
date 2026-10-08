@@ -1035,7 +1035,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _unlinkedEntityCount() {
-    if (!this._hass?.states || (!this._entityRegistry.size && !this._deviceRegistry.size)) return null;
+    if (!this._hass?.states || (this._registryStatus !== 'ready' && !this._entityRegistry.size && !this._deviceRegistry.size)) return null;
     return Object.keys(this._hass.states).filter(entityId => {
       const deviceId = this._entityRegistry.get(entityId)?.device_id;
       return !deviceId || !this._deviceRegistry.has(deviceId);
@@ -1043,13 +1043,13 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _isBatteryLevelEntity(entityId, state) {
-    if (!state || (!entityId.includes("_battery") && !entityId.includes("battery_level"))) return false;
+    if (!state || typeof state.state !== "string" || !state.state.trim()) return false;
     const attrs = state.attributes || {};
-    // Only count a battery LEVEL when it is a percentage: device_class "battery"
-    // or unit "%". Excludes Battery+ / Battery Notes helper entities such as
-    // *_battery_type or *_battery_quantity (counts/labels, not a % level). Fixes #1.
-    if (attrs.device_class !== "battery" && attrs.unit_of_measurement !== "%") return false;
-    const level = parseFloat(state.state);
+    // Device class is independent of an entity's name. A percent-only fallback
+    // also needs a battery name, so humidity percentages remain excluded.
+    const batteryName = entityId.includes("_battery") || entityId.includes("battery_level");
+    if (attrs.device_class !== "battery" && !(batteryName && attrs.unit_of_measurement === "%")) return false;
+    const level = Number(state.state);
     return Number.isFinite(level) && level >= 0 && level <= 100;
   }
 
@@ -1065,7 +1065,7 @@ class HADeviceHealth extends HTMLElement {
     Object.keys(states).forEach((entityId) => {
       const state = states[entityId];
       if (!this._isBatteryLevelEntity(entityId, state)) return;
-      const level = parseInt(state.state);
+      const level = Number(state.state);
       batteries.push({
         id: entityId,
         name: this._sanitize(state.attributes.friendly_name || this._formatEntityName(entityId)),

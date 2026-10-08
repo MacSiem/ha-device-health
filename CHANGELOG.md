@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Recognize battery device classes independently of entity names, preserve decimal readings and reject malformed values. Count unlinked states after successful empty registry reads.
+
 - Generate notification service calls compatible with the declared Home Assistant 2024.1 minimum.
 
 - Show registry loading and errors with immediate explicit retry. Discard stale registry responses and health history across account/connection changes, and refresh names and bindings on native registry events; unsubscribe on disconnect.
