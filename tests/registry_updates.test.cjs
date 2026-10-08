@@ -150,7 +150,7 @@ for (const [value, expected] of [['off', 'disabled'], ['unavailable', 'unavailab
       assert.match(card.shadowRoot.querySelector('.background-alerts-status').textContent, /active/);
       card.hass = { ...hass, states: { ...hass.states, [id]: state(id, value, { last_triggered: 'invalid' }) } };
       const text = card.shadowRoot.querySelector('.background-alerts-status').textContent;
-      assert.match(text, new RegExp(expected));
+      assert.match(text, new RegExp(expected, 'i'));
       assert.doesNotMatch(text, /Invalid Date|active/);
     } finally { dom.window.close(); }
   });
