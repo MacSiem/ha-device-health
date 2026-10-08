@@ -581,6 +581,8 @@ class HADeviceHealth extends HTMLElement {
     this._cachedStateHash = '';
     this._backgroundAlertDialog = null;
     this._backgroundAlertResult = null;
+    this._backgroundAutomationOperation = null;
+    this._backgroundAutomationUserId = undefined;
     // DOM optimization
     this._domBuilt = false;
     this._scrollPosition = 0;
@@ -830,6 +832,13 @@ class HADeviceHealth extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
+    const backgroundIdentityChanged = this._backgroundAutomationUserId !== hass?.user?.id;
+    if (backgroundIdentityChanged || hass?.user?.is_admin !== true) {
+      if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
+      this._backgroundAlertDialog = null;
+      this._backgroundAlertResult = null;
+    }
+    this._backgroundAutomationUserId = hass?.user?.id;
     this._hass = hass;
     this._loadRegistries();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
@@ -842,7 +851,7 @@ class HADeviceHealth extends HTMLElement {
     }
     // Locale and administrator controls can change without any sensor change.
     // Rendered scalars also detect an in-place update of HA's user object.
-    if (this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
+    if (backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
       this._render();
     }
     // Check if relevant state actually changed
@@ -1318,7 +1327,7 @@ class HADeviceHealth extends HTMLElement {
   _renderBackgroundAlertsSection() {
     const batteryStatus = this._getBackgroundAutomationStatus("automation.ha_device_health_battery_alert");
     const offlineStatus = this._getBackgroundAutomationStatus("automation.ha_device_health_offline_alert");
-    const resultHtml = this._backgroundAlertResult ? `
+    const resultHtml = this._hass?.user?.is_admin === true && this._backgroundAlertResult ? `
       <div class="automation-result-summary">
         ${this._backgroundAlertResult.results.map((result) => `
           <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
@@ -1419,7 +1428,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _openBackgroundAutomationDialog() {
-    if (this._hass?.user?.is_admin !== true) return;
+    if (this._hass?.user?.is_admin !== true || this._backgroundAutomationOperation) return;
     try {
       if (!this._hass || !this._hass.states) {
         this._backgroundAlertDialog = {
@@ -1443,7 +1452,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   async _createBackgroundAlertAutomations() {
-    if (this._hass?.user?.is_admin !== true || !this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
+    if (this._backgroundAutomationOperation || this._hass?.user?.is_admin !== true || !this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
 
     const dialog = {
       ...this._backgroundAlertDialog,
@@ -1451,48 +1460,64 @@ class HADeviceHealth extends HTMLElement {
       results: null,
       reload: null,
     };
+    const operation = { userId: this._hass.user.id, cancelled: false };
+    this._backgroundAutomationOperation = operation;
     this._backgroundAlertDialog = dialog;
+    const isCurrent = () => this._backgroundAutomationOperation === operation
+      && !operation.cancelled && this._backgroundAlertDialog === dialog
+      && this._hass?.user?.is_admin === true && this._hass.user.id === operation.userId;
     this._render();
 
-    const results = [];
-    for (const automation of dialog.automations) {
-      const existed = Boolean(this._hass?.states?.[automation.entityId]);
-      try {
-        await this._hass.callApi('post', 'config/automation/config/' + automation.id, automation.payload);
-        results.push({
-          ok: true,
-          label: automation.label,
-          id: automation.id,
-          message: `${existed ? "Updated existing" : "Created"} automation ${automation.id}.`,
-        });
-      } catch (error) {
-        results.push({
-          ok: false,
-          label: automation.label,
-          id: automation.id,
-          message: `Failed to ${existed ? "update" : "create"} automation ${automation.id}: ${error?.message || error}`,
-        });
+    try {
+      const results = [];
+      for (const automation of dialog.automations) {
+        if (!isCurrent()) return;
+        const existed = Boolean(this._hass?.states?.[automation.entityId]);
+        try {
+          await this._hass.callApi('post', 'config/automation/config/' + automation.id, automation.payload);
+          results.push({
+            ok: true,
+            label: automation.label,
+            id: automation.id,
+            message: `${existed ? "Updated existing" : "Created"} automation ${automation.id}.`,
+          });
+        } catch (error) {
+          results.push({
+            ok: false,
+            label: automation.label,
+            id: automation.id,
+            message: `Failed to ${existed ? "update" : "create"} automation ${automation.id}: ${error?.message || error}`,
+          });
+        }
+        if (!isCurrent()) return;
+      }
+
+      let reload = null;
+      if (results.some((result) => result.ok)) {
+        if (!isCurrent()) return;
+        try {
+          await this._hass.callService('automation', 'reload');
+          reload = { ok: true, message: "automation.reload service called." };
+        } catch (error) {
+          reload = { ok: false, message: `automation.reload failed: ${error?.message || error}` };
+        }
+        if (!isCurrent()) return;
+      }
+
+      this._backgroundAlertResult = { results, reload };
+      Object.assign(dialog, { creating: false, results, reload });
+      this._render();
+    } finally {
+      const authorized = isCurrent();
+      if (this._backgroundAutomationOperation === operation) {
+        this._backgroundAutomationOperation = null;
+        if (!authorized) {
+          this._backgroundAlertDialog = null;
+          this._backgroundAlertResult = null;
+          this._render();
+        }
       }
     }
-
-    let reload = null;
-    if (results.some((result) => result.ok)) {
-      try {
-        await this._hass.callService('automation', 'reload');
-        reload = { ok: true, message: "automation.reload service called." };
-      } catch (error) {
-        reload = { ok: false, message: `automation.reload failed: ${error?.message || error}` };
-      }
-    }
-
-    this._backgroundAlertResult = { results, reload };
-    this._backgroundAlertDialog = {
-      ...dialog,
-      creating: false,
-      results,
-      reload,
-    };
-    this._render();
   }
 
   _render() {
