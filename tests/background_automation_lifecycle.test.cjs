@@ -8,6 +8,7 @@ function setup() {
   const dom = new JSDOM('', { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/' });
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-device-health.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-device-health');
+  card._activeTab = 'alerts';
   const posts = [], services = [];
   let finish;
   const pending = new Promise(resolve => { finish = resolve; });
