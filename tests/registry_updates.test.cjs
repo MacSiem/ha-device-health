@@ -40,11 +40,11 @@ test('ordinary attribute update refreshes network signal and alert with unchange
   const { dom, card, hass } = setup();
   try {
     card._activeTab = 'network'; card._render();
-    assert.match(card.shadowRoot.querySelector('.network-table').textContent, /-60/);
+    assert.equal(card.shadowRoot.textContent.includes('-60 dBm'), true);
     const old = hass.states['binary_sensor.qa_connection'];
     const connection = { ...old, last_updated: '2026-09-27T00:01:00Z', attributes: { ...old.attributes, rssi: -92 } };
     card.hass = { ...hass, states: { 'binary_sensor.qa_connection': connection } };
-    assert.match(card.shadowRoot.querySelector('.network-table').textContent, /-92/);
+    assert.equal(card.shadowRoot.textContent.includes('-92 dBm'), true);
     assert.equal(card._alerts.some(a => a.type === 'signal_weak'), true);
   } finally { dom.window.close(); }
 });
@@ -124,7 +124,7 @@ test('battery alerts use the physical user name while independent unlinked batte
     assert.equal(card._alerts.length, 3);
     assert.equal(card._alerts.find(a => a.id === 'qa-plug').name, 'Desk plug');
     assert.equal(card._getBatteryDevices().length, 3);
-    const ids = Array.from(card._buildBackgroundAlertAutomations().automations[0].payload.trigger[0].entity_id);
+    const ids = Array.from(card._buildBackgroundAutomationPayloads().automations[0].payload.trigger[0].entity_id);
     assert.deepEqual(ids.sort(), ['sensor.another_battery', 'sensor.qa_battery', 'sensor.unlinked_battery']);
   } finally { dom.window.close(); }
 });
