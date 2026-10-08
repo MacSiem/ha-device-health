@@ -1298,7 +1298,7 @@ class HADeviceHealth extends HTMLElement {
       condition: [],
       action: [
         {
-          action: "persistent_notification.create",
+          service: "persistent_notification.create",
           data: {
             title: "Device Health battery alert",
             message: `{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} ({{ trigger.entity_id }}) is at {{ trigger.to_state.state }}%, below ${batteryWarning}%.`,
@@ -1326,7 +1326,7 @@ class HADeviceHealth extends HTMLElement {
       condition: [],
       action: [
         {
-          action: "persistent_notification.create",
+          service: "persistent_notification.create",
           data: {
             title: "Device Health offline alert",
             message: `{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} ({{ trigger.entity_id }}) has been unavailable for ${offlineMinutes} minutes.`,
