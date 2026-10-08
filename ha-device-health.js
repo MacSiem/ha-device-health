@@ -559,6 +559,7 @@ class HADeviceHealth extends HTMLElement {
     this._batterySortBy = "level";
     this._alerts = [];
     this._alertHistory = [];
+    this._alertEpisodes = new Map();
     this._acknowledgedAlerts = new Set();
     this._lastUpdate = Date.now();
     this._currentPage = 1;
@@ -803,20 +804,17 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _computeStateHash() {
-    // Build a lightweight hash from device tracker states only
-    if (!this._hass || !this._hass.states) return '';
-    const keys = Object.keys(this._hass.states).filter(k =>
-      k.startsWith('device_tracker.') ||
-      (k.startsWith('sensor.') && (k.includes('battery') || k.includes('signal') || k.includes('rssi'))) ||
-      k === 'automation.ha_device_health_battery_alert' ||
-      k === 'automation.ha_device_health_offline_alert'
-    );
-    let h = '';
-    for (const k of keys) {
-      const s = this._hass.states[k];
-      h += k + ':' + s.state + ':' + (s.last_changed || '') + '|';
-    }
-    return h;
+    if (!this._hass?.states) return '';
+    // Every entity contributes its ID to the unlinked count. Registered states
+    // contribute the values consumed by device health, battery and network UI.
+    return JSON.stringify(Object.keys(this._hass.states).sort().map(entityId => {
+      const state = this._hass.states[entityId];
+      const relevant = this._entityRegistry.has(entityId) ||
+        this._isBatteryLevelEntity(entityId, state) || entityId.startsWith('device_tracker.') ||
+        entityId === 'automation.ha_device_health_battery_alert' ||
+        entityId === 'automation.ha_device_health_offline_alert';
+      return relevant ? [entityId, state.state, state.last_changed, state.last_updated, state.attributes] : [entityId];
+    }));
   }
 
   set hass(hass) {
@@ -1025,6 +1023,8 @@ class HADeviceHealth extends HTMLElement {
 
   _generateAlerts() {
     this._alerts = [];
+    this._previousAlertEpisodes = this._alertEpisodes;
+    this._alertEpisodes = new Map();
     const now = Date.now();
     const offlineThreshold = this._config.offline_alert_minutes * 60 * 1000;
     const batteryWarning = this._config.battery_warning;
@@ -1039,8 +1039,18 @@ class HADeviceHealth extends HTMLElement {
       }
     });
 
-    // Battery alerts
-    this._getBatteryDevices().forEach((battery) => {
+    // Keep individual battery readings in the Batteries tab, but alert once
+    // per registered physical device using its lowest percentage reading.
+    const batteriesByDevice = new Map();
+    this._getBatteryDevices().forEach(battery => {
+      const device = this._deviceRegistry.get(this._entityRegistry.get(battery.id)?.device_id);
+      const id = device?.id || battery.id;
+      if (!batteriesByDevice.has(id) || battery.level < batteriesByDevice.get(id).level) {
+        batteriesByDevice.set(id, { ...battery, id,
+          name: device ? this._sanitize(device.name_by_user || device.name || device.id) : battery.name });
+      }
+    });
+    batteriesByDevice.forEach(battery => {
       if (battery.level <= batteryCritical) {
         this._addAlert("battery_critical", battery.name, battery.id, "critical");
       } else if (battery.level <= batteryWarning) {
@@ -1057,14 +1067,24 @@ class HADeviceHealth extends HTMLElement {
         }
       });
     });
+    // Acknowledgement applies to the current continuous incident. Recovery
+    // allows a later incident for the same device to notify again.
+    for (const alertId of this._acknowledgedAlerts) {
+      if (!this._alertEpisodes.has(alertId)) this._acknowledgedAlerts.delete(alertId);
+    }
   }
 
   _addAlert(type, name, id, severity) {
     const alertId = `${type}_${id}`;
+    const previous = this._previousAlertEpisodes?.get(alertId);
+    const alert = { type, name, id, severity, timestamp: previous?.timestamp || new Date().toISOString() };
+    this._alertEpisodes.set(alertId, alert);
     if (!this._acknowledgedAlerts.has(alertId)) {
-      this._alerts.push({ type, name, id, severity, timestamp: new Date().toISOString() });
-      this._alertHistory.unshift({ type, name, id, severity, timestamp: new Date().toISOString() });
-      if (this._alertHistory.length > 20) this._alertHistory.pop();
+      this._alerts.push(alert);
+      if (!previous) {
+        this._alertHistory.unshift(alert);
+        if (this._alertHistory.length > 20) this._alertHistory.pop();
+      }
     }
   }
 
