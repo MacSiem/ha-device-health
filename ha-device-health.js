@@ -650,6 +650,8 @@ class HADeviceHealth extends HTMLElement {
         battery: "Battery",
         notCreated: "not created",
         automationActive: "active",
+        automationDisabled: "disabled",
+        automationUnknown: "unknown",
         lastTriggered: "last triggered",
         never: "never",
         deviceHealth: "Device Health",
@@ -747,6 +749,8 @@ class HADeviceHealth extends HTMLElement {
         battery: "Bateria",
         notCreated: "nie utworzono",
         automationActive: "aktywna",
+        automationDisabled: "wyłączona",
+        automationUnknown: "stan nieznany",
         lastTriggered: "ostatnio uruchomiona",
         never: "nigdy",
         deviceHealth: "Zdrowie Urządzeń",
@@ -917,17 +921,20 @@ class HADeviceHealth extends HTMLElement {
     return [...this._deviceRegistry.values()].map(device => {
       const states = statesByDevice.get(device.id) || [];
       const available = states.filter(state => state.state !== 'unavailable' && state.state !== 'unknown');
-      const disconnected = states.some(state =>
+      const disconnectedStates = states.filter(state =>
         state.entity_id?.startsWith('binary_sensor.') &&
         state.attributes?.device_class === 'connectivity' && state.state === 'off'
       );
+      const offlineSince = disconnectedStates.map(state => state.last_changed)
+        .filter(value => Number.isFinite(Date.parse(value))).sort()[0];
       const latest = states.map(state => state.last_changed).filter(Boolean).sort().at(-1);
       return {
         id: device.id,
         name: this._sanitize(device.name_by_user || device.name || device.id),
         type: device.model || 'device',
-        status: !states.length ? 'unknown' : !available.length ? 'unavailable' : disconnected ? 'offline' : 'online',
+        status: !states.length ? 'unknown' : !available.length ? 'unavailable' : disconnectedStates.length ? 'offline' : 'online',
         lastSeen: latest || null,
+        offlineSince: offlineSince || null,
         uptime: latest ? this._calculateUptime(latest) : '',
         domain: 'device',
       };
@@ -1032,7 +1039,7 @@ class HADeviceHealth extends HTMLElement {
 
     // Device offline alerts
     this._getDevices().forEach((device) => {
-      if (device.status === "offline" && (now - new Date(device.lastSeen).getTime()) > offlineThreshold) {
+      if (device.status === "offline" && (now - Date.parse(device.offlineSince)) > offlineThreshold) {
         this._addAlert("offline", device.name, device.id, "critical");
       } else if (device.status === "unavailable") {
         this._addAlert("unavailable", device.name, device.id, "warning");
@@ -1089,7 +1096,9 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _calculateUptime(lastChanged) {
-    const diff = Date.now() - new Date(lastChanged).getTime();
+    const changedAt = Date.parse(lastChanged);
+    if (!Number.isFinite(changedAt)) return '—';
+    const diff = Math.max(0, Date.now() - changedAt);
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     if (days > 0) return `${days} ${this._t('elapsedDays')}`;
@@ -1340,8 +1349,12 @@ class HADeviceHealth extends HTMLElement {
     const state = this._hass?.states?.[entityId];
     if (!state) return this._t('notCreated');
     const lastTriggered = state.attributes?.last_triggered;
-    const triggeredText = `, ${this._t('lastTriggered')}: ${lastTriggered ? new Date(lastTriggered).toLocaleString(this._lang) : this._t('never')}`;
-    return `${this._t('automationActive')}${triggeredText}`;
+    const triggeredDate = lastTriggered && Number.isFinite(Date.parse(lastTriggered))
+      ? new Date(lastTriggered).toLocaleString(this._lang) : lastTriggered ? '—' : this._t('never');
+    const triggeredText = `, ${this._t('lastTriggered')}: ${triggeredDate}`;
+    const statusKey = state.state === 'on' ? 'automationActive' : state.state === 'off'
+      ? 'automationDisabled' : state.state === 'unavailable' ? 'unavailable' : 'automationUnknown';
+    return `${this._t(statusKey)}${triggeredText}`;
   }
 
   _renderBackgroundAlertsSection() {

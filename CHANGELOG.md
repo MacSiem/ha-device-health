@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Refresh device status, network signal and the unlinked count on ordinary Home Assistant state and attribute changes. Alert once per physical device using its lowest battery reading, and record continuous incidents once; recovery enables a new alert after acknowledgement.
+- Measure connectivity alert delay from the connectivity failure itself. Show unknown elapsed time for invalid dates and display disabled, unavailable and unknown background automation states accurately.
+
 - Prevent duplicate background automation writes while Home Assistant is responding. Stop further writes and discard stale results after administrator role or account changes; ordinary language updates preserve the pending operation.
 
 - Translate device status, the absent-model fallback and network group labels without changing authored models or connection classification. Use the Polish dictionary for regional Polish Home Assistant language settings as well.
