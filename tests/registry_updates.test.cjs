@@ -40,11 +40,11 @@ test('ordinary attribute update refreshes network signal and alert with unchange
   const { dom, card, hass } = setup();
   try {
     card._activeTab = 'network'; card._render();
-    assert.match(card.shadowRoot.textContent, /-60/);
+    assert.match(card.shadowRoot.querySelector('.network-table').textContent, /-60/);
     const old = hass.states['binary_sensor.qa_connection'];
     const connection = { ...old, last_updated: '2026-09-27T00:01:00Z', attributes: { ...old.attributes, rssi: -92 } };
     card.hass = { ...hass, states: { 'binary_sensor.qa_connection': connection } };
-    assert.match(card.shadowRoot.textContent, /-92/);
+    assert.match(card.shadowRoot.querySelector('.network-table').textContent, /-92/);
     assert.equal(card._alerts.some(a => a.type === 'signal_weak'), true);
   } finally { dom.window.close(); }
 });
@@ -53,7 +53,7 @@ test('a new unlinked entity updates the displayed unlinked count without inflati
   const { dom, card, hass, state } = setup();
   try {
     card.hass = { ...hass, states: { ...hass.states, 'sensor.qa_unrelated': state('sensor.qa_unrelated', '25', {}) } };
-    assert.match(card.shadowRoot.textContent, /Entities without a registered device: 1/);
+    assert.match(card.shadowRoot.querySelector('.stats').textContent, /Entities without a registered device: 1/);
     assert.equal(card._getDevices().length, 1);
   } finally { dom.window.close(); }
 });
@@ -87,5 +87,85 @@ test('continuous alert keeps one history entry while a real recovery and new fau
     assert.equal(card._alerts.length, 0);
     card.hass = low;
     assert.equal(card._alertHistory.length, 2);
+  } finally { dom.window.close(); }
+});
+
+
+test('acknowledgement silences the current incident but recovery allows a new battery alert', () => {
+  const { dom, card, hass, state } = setup();
+  try {
+    card._activeTab = 'alerts';
+    const update = value => {
+      card.hass = { ...hass, states: { ...hass.states,
+        'sensor.qa_battery': state('sensor.qa_battery', value, { device_class: 'battery', unit_of_measurement: '%' }) } };
+    };
+    update('5');
+    card.shadowRoot.querySelector('.alert-dismiss').click();
+    for (let i = 0; i < 20; i++) update(String(4 + i / 100));
+    assert.equal(card._alerts.length, 0);
+    assert.equal(card._alertHistory.length, 1);
+    update('80'); update('5');
+    assert.equal(card._alerts.length, 1);
+    assert.equal(card._alertHistory.length, 2);
+  } finally { dom.window.close(); }
+});
+
+test('battery alerts use the physical user name while independent unlinked batteries remain separate', () => {
+  const { dom, card, hass, state } = setup();
+  try {
+    card._deviceRegistry.set('qa-plug', { id: 'qa-plug', name: 'QA plug', name_by_user: 'Desk plug' });
+    const attrs = { device_class: 'battery', unit_of_measurement: '%' };
+    card.hass = { ...hass, states: { ...hass.states,
+      'sensor.qa_battery': state('sensor.qa_battery', '5', attrs),
+      'sensor.unlinked_battery': state('sensor.unlinked_battery', '6', attrs),
+      'sensor.another_battery': state('sensor.another_battery', '7', attrs),
+      'sensor.qa_battery_type': state('sensor.qa_battery_type', '2xCR2032', {}),
+      'sensor.qa_battery_quantity': state('sensor.qa_battery_quantity', '2', {}) } };
+    assert.equal(card._alerts.length, 3);
+    assert.equal(card._alerts.find(a => a.id === 'qa-plug').name, 'Desk plug');
+    assert.equal(card._getBatteryDevices().length, 3);
+    const ids = Array.from(card._buildBackgroundAlertAutomations().automations[0].payload.trigger[0].entity_id);
+    assert.deepEqual(ids.sort(), ['sensor.another_battery', 'sensor.qa_battery', 'sensor.unlinked_battery']);
+  } finally { dom.window.close(); }
+});
+
+test('invalid last-change date renders an unknown elapsed duration rather than NaN', () => {
+  const { dom, card, hass } = setup();
+  try {
+    const connection = { ...hass.states['binary_sensor.qa_connection'], last_changed: 'invalid' };
+    card.hass = { ...hass, states: { 'binary_sensor.qa_connection': connection } };
+    const cells = card.shadowRoot.querySelectorAll('.device-table tbody td');
+    assert.equal(cells[3].textContent, '—');
+    assert.equal(cells[4].textContent, '—');
+  } finally { dom.window.close(); }
+});
+
+for (const [value, expected] of [['off', 'disabled'], ['unavailable', 'unavailable'], ['unknown', 'unknown']]) {
+  test(`background automation ${value} is displayed accurately on an ordinary update`, () => {
+    const { dom, card, hass, state } = setup();
+    try {
+      card._activeTab = 'alerts';
+      const id = 'automation.ha_device_health_battery_alert';
+      card.hass = { ...hass, states: { ...hass.states, [id]: state(id, 'on', { last_triggered: null }) } };
+      assert.match(card.shadowRoot.querySelector('.background-alerts-status').textContent, /active/);
+      card.hass = { ...hass, states: { ...hass.states, [id]: state(id, value, { last_triggered: 'invalid' }) } };
+      const text = card.shadowRoot.querySelector('.background-alerts-status').textContent;
+      assert.match(text, new RegExp(expected));
+      assert.doesNotMatch(text, /Invalid Date|active/);
+    } finally { dom.window.close(); }
+  });
+}
+
+test('unrelated device activity never postpones an ongoing connectivity failure alert', () => {
+  const { dom, card, hass, state } = setup();
+  try {
+    card._entityRegistry.set('switch.qa_plug', { device_id: 'qa-plug' });
+    const connection = { ...hass.states['binary_sensor.qa_connection'], state: 'off' };
+    card.hass = { ...hass, states: {
+      'binary_sensor.qa_connection': connection,
+      'switch.qa_plug': { ...state('switch.qa_plug', 'on', {}), last_changed: new Date().toISOString() }
+    } };
+    assert.equal(card.shadowRoot.querySelector('.status-badge').textContent, 'OFFLINE');
+    assert.equal(card._alerts.some(a => a.type === 'offline'), true);
   } finally { dom.window.close(); }
 });
