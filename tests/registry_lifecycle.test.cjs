@@ -111,3 +111,17 @@ test('a native registry event refreshes device names without a state change or r
     assert.equal(events.size, 0);
   } finally { dom.window.close(); }
 });
+
+test('a card assigned hass before attachment subscribes when connected and reacts without another hass assignment',async()=>{
+ const dom=new JSDOM('',{runScripts:'dangerously',pretendToBeVisual:true,url:'http://localhost/'});
+ dom.window.eval(readFileSync(join(__dirname,'..','ha-device-health.js'),'utf8'));
+ const card=dom.window.document.createElement('ha-device-health');card.setConfig({show_support:false});
+ const events=new Map();let name='QA before attachment';
+ const hass={language:'en',user:{id:'qa',is_admin:true},states:{},connection:{subscribeEvents:async(callback,type)=>{events.set(type,callback);return()=>events.delete(type);}},callWS:async({type})=>registry(type,name)};
+ try{
+  card.hass=hass;dom.window.document.body.append(card);await card._registryLoading;await Promise.resolve();
+  assert.equal(events.has('device_registry_updated'),true);
+  name='QA after attachment';events.get('device_registry_updated')?.({event_type:'device_registry_updated'});await card._registryLoading;
+  assert.equal(card.shadowRoot.querySelector('.device-table tbody td').textContent,name);
+ }finally{dom.window.close();}
+});
