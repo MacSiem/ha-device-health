@@ -544,6 +544,10 @@ class HADeviceHealth extends HTMLElement {
     this._deviceRegistry = new Map();
     this._registryLoading = null;
     this._registryLoadedAt = 0;
+    this._registryRetryAt = 0;
+    this._registryStatus = 'idle';
+    this._registryEpoch = 0;
+    this._registrySession = null;
     this._activeTab = "devices";
     // Direct HA panels do not call Lovelace setConfig.
     try {
@@ -597,6 +601,10 @@ class HADeviceHealth extends HTMLElement {
         editorBatteryWarning: "Battery warning %",
         editorBatteryCritical: "Battery critical %",
         genericDevice: "Device",
+        registryLoading: "Loading device registry…",
+        registryFailed: "Could not load the device registry. Existing readings may be out of date.",
+        registryNotReady: "Device registry is not available yet.",
+        retryRegistry: "Retry",
         networkOther: "Other",
         networkGroup: "{protocol} Network",
         previewDialog: "Generate Device Health background automations",
@@ -696,6 +704,10 @@ class HADeviceHealth extends HTMLElement {
         editorBatteryWarning: "Ostrzeżenie baterii (%)",
         editorBatteryCritical: "Krytyczny poziom baterii (%)",
         genericDevice: "Urządzenie",
+        registryLoading: "Ładowanie rejestru urządzeń…",
+        registryFailed: "Nie udało się pobrać rejestru urządzeń. Dotychczasowe odczyty mogą być nieaktualne.",
+        registryNotReady: "Rejestr urządzeń nie jest jeszcze dostępny.",
+        retryRegistry: "Spróbuj ponownie",
         networkOther: "Inne",
         networkGroup: "Sieć: {protocol}",
         previewDialog: "Podgląd automatyzacji Device Health",
@@ -841,6 +853,23 @@ class HADeviceHealth extends HTMLElement {
       this._backgroundAlertResult = null;
     }
     this._backgroundAutomationUserId = hass?.user?.id;
+    const registrySession = this._readSession(hass);
+    const registrySessionChanged = this._registrySession && !this._sameReadSession(this._registrySession, registrySession);
+    if (registrySessionChanged) {
+      this._registryEpoch++;
+      this._registryLoading = null;
+      this._registryLoadedAt = 0;
+      this._registryRetryAt = 0;
+      this._registryStatus = 'idle';
+      this._entityRegistry.clear();
+      this._deviceRegistry.clear();
+      this._alerts = [];
+      this._alertHistory = [];
+      this._alertEpisodes.clear();
+      this._acknowledgedAlerts.clear();
+      this._cachedStateHash = null;
+    }
+    this._registrySession = registrySession;
     this._hass = hass;
     this._loadRegistries();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
@@ -853,7 +882,7 @@ class HADeviceHealth extends HTMLElement {
     }
     // Locale and administrator controls can change without any sensor change.
     // Rendered scalars also detect an in-place update of HA's user object.
-    if (backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
+    if (registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
       this._render();
     }
     // Check if relevant state actually changed
@@ -889,20 +918,46 @@ class HADeviceHealth extends HTMLElement {
 
   _sanitize(s) { try { return decodeURIComponent(escape(s)); } catch(e) { return s; } }
 
-  _loadRegistries() {
-    if (!this._hass?.callWS || this._registryLoading || Date.now() - this._registryLoadedAt < 300000) return;
-    this._registryLoading = Promise.all([
-      this._hass.callWS({ type: 'config/entity_registry/list' }),
-      this._hass.callWS({ type: 'config/device_registry/list' })
-    ]).then(([entities, devices]) => {
+  // Same session/epoch pattern as Network Map; this plugin reads native HA
+  // registries rather than the integration's list_devices endpoint.
+  _readSession(hass = this._hass) {
+    return { connection: hass?.connection, userId: hass?.user?.id, admin: hass?.user?.is_admin };
+  }
+
+  _sameReadSession(a, b) {
+    return a.connection === b.connection && a.userId === b.userId && a.admin === b.admin;
+  }
+
+  _loadRegistries(explicitRetry = false) {
+    if (!this._hass?.callWS || this._registryLoading) return;
+    if (!explicitRetry && (Date.now() < this._registryRetryAt || Date.now() - this._registryLoadedAt < 300000)) return;
+    const hass = this._hass;
+    const session = this._readSession(hass);
+    const epoch = ++this._registryEpoch;
+    const current = () => this.isConnected && epoch === this._registryEpoch && this._sameReadSession(session, this._readSession());
+    this._registryStatus = 'loading';
+    const pending = Promise.resolve().then(() => Promise.all([
+      hass.callWS({ type: 'config/entity_registry/list' }),
+      hass.callWS({ type: 'config/device_registry/list' })
+    ])).then(([entities, devices]) => {
+      if (!current()) return;
       this._entityRegistry = new Map(entities.map(entry => [entry.entity_id, entry]));
       this._deviceRegistry = new Map(devices.map(entry => [entry.id, entry]));
       this._registryLoadedAt = Date.now();
-      if (this.isConnected) { this._generateAlerts(); this._render(); }
-    }).catch(error => {
-      console.warn('[ha-device-health] Registry lookup failed', error);
-      this._registryLoadedAt = Date.now();
-    }).finally(() => { this._registryLoading = null; });
+      this._registryRetryAt = 0;
+      this._registryStatus = 'ready';
+      this._cachedStateHash = this._computeStateHash();
+      this._generateAlerts();
+      this._render();
+    }).catch(() => {
+      if (!current()) return;
+      this._registryStatus = 'error';
+      this._registryRetryAt = Date.now() + 30000;
+      this._render();
+    }).finally(() => { if (this._registryLoading === pending) this._registryLoading = null; });
+    this._registryLoading = pending;
+    if (explicitRetry) this._render();
+    return pending;
   }
 
   _update() {
@@ -2320,6 +2375,7 @@ class HADeviceHealth extends HTMLElement {
     `;
 
     const devices = this._getDevices();
+    const registryUnknown = this._registryStatus !== 'ready' && !this._deviceRegistry.size;
     const batteries = this._getBatteryDevices();
     const networks = this._getNetworkDevices();
     const online = devices.filter((d) => d.status === "online").length;
@@ -2340,6 +2396,12 @@ class HADeviceHealth extends HTMLElement {
         
         </div>
     `;
+
+    if (this._registryStatus !== 'ready' && (registryUnknown || this._registryStatus === 'error')) {
+      const messageKey = this._registryStatus === 'error' ? 'registryFailed'
+        : this._registryStatus === 'loading' ? 'registryLoading' : 'registryNotReady';
+      html += `<div class="registry-notice" role="status" style="margin:12px;padding:12px;border:1px solid var(--bento-border);border-radius:8px;">${this._t(messageKey)}${this._hass?.callWS && this._registryStatus !== 'loading' ? ` <button type="button" class="registry-retry">${this._t('retryRegistry')}</button>` : ''}</div>`;
+    }
 
     // Devices Tab
     if (this._activeTab === "devices") {
@@ -2384,7 +2446,7 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats">
-            ${this._t('totalDevices')}: ${devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}${unlinkedEntities === null ? '' : ` | ${this._t('unlinkedEntities')}: ${unlinkedEntities}`}
+            ${this._t('totalDevices')}: ${registryUnknown ? '—' : devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}${unlinkedEntities === null ? '' : ` | ${this._t('unlinkedEntities')}: ${unlinkedEntities}`}
           </div>
           <div class="table-wrapper">
           <table class="device-table">
@@ -2812,6 +2874,8 @@ ${style}
   }
 
   _attachEventListeners() {
+    const registryRetry = this.shadowRoot.querySelector('.registry-retry');
+    if (registryRetry) registryRetry.addEventListener('click', () => this._loadRegistries(true));
     const tabs = this.shadowRoot.querySelectorAll(".tab-btn");
     tabs.forEach((tab) => {
       tab.addEventListener("click", (e) => {
@@ -3072,6 +3136,9 @@ ${style}
   }
 
   disconnectedCallback() {
+    this._registryEpoch++;
+    this._registryLoading = null;
+    this._registryLoadedAt = 0;
     if (this._renderTimer) clearTimeout(this._renderTimer);
     if (this._scrollTimer) clearTimeout(this._scrollTimer);
     if (this._scrollFrame) cancelAnimationFrame(this._scrollFrame);
