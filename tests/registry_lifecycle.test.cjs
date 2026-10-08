@@ -89,3 +89,25 @@ test('disconnect discards a pending registry response and reconnect obtains curr
     assert.equal(text.includes('QA current connection'), true);
   } finally { for (const resolve of finish) resolve(); dom.window.close(); }
 });
+
+
+test('a native registry event refreshes device names without a state change or reload', async () => {
+  const { dom, card, hass } = setup();
+  const events = new Map();
+  let name = 'QA original name';
+  hass.connection.subscribeEvents = async (callback, type) => {
+    events.set(type, callback);
+    return () => events.delete(type);
+  };
+  hass.callWS = async ({ type }) => registry(type, name);
+  try {
+    card.hass = hass; await card._registryLoading;
+    assert.equal(card.shadowRoot.querySelector('.device-table tbody td').textContent, 'QA original name');
+    name = 'QA renamed device';
+    events.get('device_registry_updated')?.({ event_type: 'device_registry_updated' });
+    await card._registryLoading;
+    assert.equal(card.shadowRoot.querySelector('.device-table tbody td').textContent, 'QA renamed device');
+    card.remove();
+    assert.equal(events.size, 0);
+  } finally { dom.window.close(); }
+});
