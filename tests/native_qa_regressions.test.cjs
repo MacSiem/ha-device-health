@@ -157,3 +157,33 @@ test('physical battery summary and alert count stay unknown while the initial re
     assert.match(card.shadowRoot.querySelector('.stats').textContent, /1 device\(s\) need attention/);
   } finally { for (const resolve of finish) resolve(); dom.window.close(); }
 });
+
+
+test('device name sorting orders every registry record, reverses through a keyboard-accessible button, and preserves the page on ordinary updates', async () => {
+  const { dom, card, hass } = setup();
+  const devices = Array.from({ length: 20 }, (_, index) => ({ id: 'device_' + index, name: 'Device ' + String(20 - index).padStart(2, '0') }));
+  const entities = devices.map(device => ({ entity_id: 'sensor.' + device.id, device_id: device.id }));
+  hass.states = Object.fromEntries(entities.map(entity => [entity.entity_id, { entity_id: entity.entity_id, state: 'on', attributes: {} }]));
+  hass.callWS = async ({ type }) => type === 'config/device_registry/list' ? devices : entities;
+  const names = () => Array.from(card.shadowRoot.querySelectorAll('.device_table tbody tr'), row => row.querySelector('td').textContent.trim());
+  try {
+    card.hass = hass; await card._registryLoading; card.setActiveTab('devices');
+    assert.equal(names()[0], 'Device 01', 'initial name order is alphabetical, not registry insertion order');
+    assert.equal(card.shadowRoot.querySelector('.stats').textContent.includes('Total Devices: 20'), true);
+    card.shadowRoot.querySelector('.pagination-next').click();
+    assert.equal(names()[0], 'Device 16');
+    const sort = card.shadowRoot.querySelector('th[data-sort="name"] button');
+    assert.ok(sort, 'sorting must be reachable using a native keyboard-accessible button');
+    sort.focus(); sort.click();
+    assert.equal(card.shadowRoot.activeElement, card.shadowRoot.querySelector('th[data-sort="name"] button'), 'keyboard focus returns to the recreated sorting button');
+    assert.equal(names()[0], 'Device 20');
+    assert.equal(card.shadowRoot.querySelector('th[data-sort="name"]').getAttribute('aria-sort'), 'descending');
+    card.shadowRoot.querySelector('.pagination-next').click();
+    assert.deepEqual(names(), ['Device 05', 'Device 04', 'Device 03', 'Device 02', 'Device 01']);
+    card.hass = { ...hass, states: { ...hass.states, 'sensor.device_0': { ...hass.states['sensor.device_0'], state: 'off' } } };
+    card._update();
+    assert.equal(card.shadowRoot.querySelector('.pagination-info').textContent.includes('2'), true);
+    assert.deepEqual(names(), ['Device 05', 'Device 04', 'Device 03', 'Device 02', 'Device 01']);
+    assert.equal(card.shadowRoot.querySelector('.stats').textContent.includes('Total Devices: 20'), true);
+  } finally { dom.window.close(); }
+});
