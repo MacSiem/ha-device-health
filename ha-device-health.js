@@ -1023,18 +1023,31 @@ class HADeviceHealth extends HTMLElement {
     return [...this._deviceRegistry.values()].map(device => {
       const states = statesByDevice.get(device.id) || [];
       const available = states.filter(state => state.state !== 'unavailable' && state.state !== 'unknown');
-      const disconnectedStates = states.filter(state =>
-        state.entity_id?.startsWith('binary_sensor.') &&
-        state.attributes?.device_class === 'connectivity' && state.state === 'off'
-      );
-      const offlineSince = disconnectedStates.map(state => state.last_changed)
-        .filter(value => Number.isFinite(Date.parse(value))).sort()[0];
+      const connectionStates = available.filter(state => {
+        const attrs = state.attributes || {};
+        if (state.entity_id?.startsWith('binary_sensor.')) {
+          return attrs.device_class === 'connectivity' && ['on', 'off'].includes(state.state);
+        }
+        // Location trackers can be away while fully connected. A scanner's
+        // zone state instead reports a connection to its router/beacon.
+        return state.entity_id?.startsWith('device_tracker.') &&
+          attrs.source_type !== 'gps' && attrs.tracking_type !== 'position' &&
+          (attrs.source_type === 'router' || attrs.tracking_type === 'connection') &&
+          typeof state.state === 'string' && Boolean(state.state.trim());
+      });
+      const disconnectedStates = connectionStates.filter(state => ['off', 'not_home'].includes(state.state));
+      // A live connection keeps the physical device online even if another
+      // link is down. The offline interval begins when the final link drops.
+      const offline = disconnectedStates.length > 0 && disconnectedStates.length === connectionStates.length;
+      const offlineSince = offline ? disconnectedStates.map(state => state.last_changed)
+        .filter(value => Number.isFinite(Date.parse(value)))
+        .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1) : null;
       const latest = states.map(state => state.last_changed).filter(Boolean).sort().at(-1);
       return {
         id: device.id,
         name: this._sanitize(device.name_by_user || device.name || device.id),
         type: device.model || 'device',
-        status: !states.length ? 'unknown' : !available.length ? 'unavailable' : disconnectedStates.length ? 'offline' : 'online',
+        status: !states.length ? 'unknown' : !available.length ? 'unavailable' : offline ? 'offline' : 'online',
         lastSeen: latest || null,
         offlineSince: offlineSince || null,
         uptime: latest ? this._calculateUptime(latest) : '',
@@ -1090,6 +1103,11 @@ class HADeviceHealth extends HTMLElement {
   _getNetworkDevices() {
     const networks = {};
     if (!this._hass?.states) return networks;
+    const signalValue = value => {
+      if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
+      const number = Number(value);
+      return Number.isFinite(number) && number < 0 ? number : null;
+    };
     const statesByDevice = new Map();
     for (const [entityId, entry] of this._entityRegistry) {
       const state = this._hass.states[entityId];
@@ -1116,14 +1134,17 @@ class HADeviceHealth extends HTMLElement {
       else if (explicitType === 'wifi' || ssid) protocol = 'WiFi';
       else if (mac || ip || sourceTypes.has('router')) protocol = 'Other';
       if (!protocol) continue;
-      const signal = states.find(state => /signal|rssi/i.test(state.entity_id || ''));
-      const value = signal ? Number(signal.state) : Number(attrs.map(a => a.rssi ?? a.signal_strength).find(v => v != null));
+      const readings = states.filter(state => /signal|rssi/i.test(state.entity_id || ''))
+        .map(state => signalValue(state.state));
+      const value = readings.find(reading => reading !== null) ??
+        attrs.flatMap(a => [signalValue(a.rssi), signalValue(a.signal_strength)])
+          .find(reading => reading !== null) ?? null;
       if (!networks[protocol]) networks[protocol] = [];
       networks[protocol].push({
         id: device.id,
         name: this._sanitize(device.name_by_user || device.name || device.id),
         device: this._sanitize(device.name_by_user || device.name || device.id),
-        rssi: Number.isFinite(value) && value < 0 ? value : null,
+        rssi: value,
         mac, ip, ssid, connectionType: protocol
       });
     }

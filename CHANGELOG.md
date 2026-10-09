@@ -2,6 +2,8 @@
 
 ## 4.2.9 (2026-10-09)
 
+- Restore router/connection tracker offline detection without treating GPS absence or ordinary switch off as failure. Resolve conflicting connection evidence conservatively and measure the delay from the last disconnected link.
+- Skip unavailable, unknown and malformed signal readings; use valid sibling RSSI readings or numeric attributes, and refresh weak-signal alerts on ordinary attribute updates.
 - Offline alerts appear when their configured delay expires, even if no other sensor changes; the pending deadline is cancelled when the card is removed.
 - Structured Home Assistant save errors show a readable message or HTTP status, with Polish and English fallback text.
 

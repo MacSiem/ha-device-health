@@ -51,7 +51,7 @@ test('registry device without entity state is unknown, not failed health', () =>
   } finally { dom.window.close(); }
 });
 
-test('only an explicit connectivity sensor can mark a device offline', () => {
+test('an explicit connectivity failure, not ordinary switch off, marks a device offline', () => {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   try {
     dom.window.eval(readFileSync(join(__dirname, '..', 'ha-device-health.js'), 'utf8'));

@@ -19,8 +19,11 @@ registries through your Home Assistant connection — no extra integration or YA
    quantity helpers without battery-level metadata are excluded; humidity
    percentages are not battery readings.
 2. **Availability.** Each registered device appears once. A device with no current
-   entity state is marked unknown, not failed; `off` is only treated as offline
-   when an explicit connectivity binary sensor says it is disconnected.
+   entity state is marked unknown, not failed. A connectivity binary sensor's
+   `off` or a router/connection tracker's `not_home` indicates disconnection;
+   GPS absence and an ordinary switch's `off` do not. If another explicit
+   connection is active, the device stays online. When all known connections
+   drop, the offline delay starts at the latest valid disconnection time.
 3. **Network evidence.** Bluetooth and Zigbee come from registry connections;
    Wi-Fi needs an explicit Wi-Fi connection type or SSID. A generic MAC or IP
    goes to Other, not Wi-Fi. Entity states without a registered device are
@@ -55,7 +58,9 @@ theme; the device table is filtered to the three QA devices.
 | Alerts | ![Device alerts and history in native HA](docs/screenshots/card-alerts-light.png) | ![Alerty w natywnym HA](docs/screenshots/card-alerts-dark.png) |
 
 Dark mode follows your Home Assistant theme. The signal chart uses available
-RSSI readings; missing readings do not become a zero signal value.
+RSSI readings. Invalid signal entities are skipped in favor of valid sibling
+readings, then numeric `rssi` or `signal_strength` attributes. Missing readings
+remain unknown and do not become a zero signal value.
 
 ## Installation
 
@@ -113,7 +118,8 @@ or reload errors are shown in the card; review an error before retrying.
 The battery automation triggers when a reading crosses **below** the warning
 threshold. The offline automation watches the generated entity list for
 `unavailable` for the configured duration. These are per-entity notifications;
-the card's physical device alerts also understand connectivity sensors. Existing
+the card's physical device alerts also understand connectivity sensors and
+router/connection trackers. Existing
 low readings do not by themselves trigger a newly created numeric-state automation.
 
 The generator uses one shared pair of automation IDs for the HA instance.
