@@ -12,7 +12,8 @@ function setup() {
   const state = value => ({ state: value, attributes: { device_class: 'battery', unit_of_measurement: '%' } });
   const hass = { language: 'en', user: { id: 'qa-admin', is_admin: true }, connection: {}, states: {
     'sensor.qa_battery_primary': { entity_id: 'sensor.qa_battery_primary', ...state('10.9') },
-    'sensor.qa_battery_secondary': { entity_id: 'sensor.qa_battery_secondary', ...state('30') }
+    'sensor.qa_battery_secondary': { entity_id: 'sensor.qa_battery_secondary', ...state('30') },
+    'switch.qa_plug': { entity_id: 'switch.qa_plug', state: 'on', attributes: {} }
   } };
   return { dom, card, hass };
 }
@@ -137,4 +138,22 @@ test('editing thresholds updates the active alerts immediately without waiting f
     card.setConfig({ battery_warning: 30, battery_critical: 10 });
     assert.equal(card._alerts.length, 2);
   } finally { dom.window.close(); }
+});
+
+
+test('physical battery summary and alert count stay unknown while the initial registry identity is loading', async () => {
+  const { dom, card, hass } = setup(); const finish = [];
+  hass.callWS = ({ type }) => new Promise(resolve => finish.push(() => resolve(records(type))));
+  try {
+    card.setActiveTab('batteries'); card.hass = hass;
+    const pending = card._registryLoading; await Promise.resolve();
+    assert.equal(card.shadowRoot.querySelectorAll('.battery-card').length, 2, 'readings themselves are already available');
+    assert.match(card.shadowRoot.querySelector('.stats').textContent, /— device\(s\) need attention/);
+    card.setActiveTab('alerts');
+    assert.match(card.shadowRoot.querySelector('.alerts-header').textContent, /Active Alerts: —/);
+    for (const resolve of finish) resolve(); await pending;
+    assert.equal(card._alertHistory.length, 1);
+    card.setActiveTab('batteries');
+    assert.match(card.shadowRoot.querySelector('.stats').textContent, /1 device\(s\) need attention/);
+  } finally { for (const resolve of finish) resolve(); dom.window.close(); }
 });
