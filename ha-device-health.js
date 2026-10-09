@@ -850,15 +850,15 @@ class HADeviceHealth extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
+    const registrySession = this._readSession(hass);
+    const registrySessionChanged = this._registrySession && !this._sameReadSession(this._registrySession, registrySession);
     const backgroundIdentityChanged = this._backgroundAutomationUserId !== hass?.user?.id;
-    if (backgroundIdentityChanged || hass?.user?.is_admin !== true) {
+    if (registrySessionChanged || backgroundIdentityChanged || hass?.user?.is_admin !== true) {
       if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
       this._backgroundAlertDialog = null;
       this._backgroundAlertResult = null;
     }
     this._backgroundAutomationUserId = hass?.user?.id;
-    const registrySession = this._readSession(hass);
-    const registrySessionChanged = this._registrySession && !this._sameReadSession(this._registrySession, registrySession);
     if (registrySessionChanged) {
       this._stopRegistryUpdates();
       this._registryEpoch++;
@@ -1588,11 +1588,12 @@ class HADeviceHealth extends HTMLElement {
       results: null,
       reload: null,
     };
-    const operation = { userId: this._hass.user.id, cancelled: false };
+    const operation = { userId: this._hass.user.id, session: this._readSession(), cancelled: false };
     this._backgroundAutomationOperation = operation;
     this._backgroundAlertDialog = dialog;
     const isCurrent = () => this._backgroundAutomationOperation === operation
       && !operation.cancelled && this._backgroundAlertDialog === dialog
+      && this._sameReadSession(operation.session, this._readSession())
       && this._hass?.user?.is_admin === true && this._hass.user.id === operation.userId;
     this._render();
 
@@ -3185,6 +3186,9 @@ ${style}
   }
 
   disconnectedCallback() {
+    if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
+    this._backgroundAlertDialog = null;
+    this._backgroundAlertResult = null;
     this._stopRegistryUpdates();
     this._registryEpoch++;
     this._registryLoading = null;
