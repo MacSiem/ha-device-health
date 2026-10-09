@@ -1,41 +1,18 @@
-## Unreleased
+# Changelog — Device Health
 
-- Recognize battery device classes independently of entity names, preserve decimal readings and reject malformed values. Count unlinked states after successful empty registry reads.
+## 4.2.9 (2026-10-09)
 
-- Generate notification service calls compatible with the declared Home Assistant 2024.1 minimum.
-
-- Show registry loading and errors with immediate explicit retry. Discard stale registry responses and health history across account/connection changes, and refresh names and bindings on native registry events; unsubscribe on disconnect.
-
-- Refresh device status, network signal and the unlinked count on ordinary Home Assistant state and attribute changes. Alert once per physical device using its lowest battery reading, and record continuous incidents once; recovery enables a new alert after acknowledgement.
-- Measure connectivity alert delay from the connectivity failure itself. Show unknown elapsed time for invalid dates and display disabled, unavailable and unknown background automation states accurately.
-
-- Prevent duplicate background automation writes while Home Assistant is responding. Stop further writes and discard stale results after administrator role or account changes; ordinary language updates preserve the pending operation.
-
-- Translate device status, the absent-model fallback and network group labels without changing authored models or connection classification. Use the Polish dictionary for regional Polish Home Assistant language settings as well.
-
-- Translate the visual editor and implicit default heading using Home Assistant's language. Preserve authored titles, editor drafts, caret selection and configuration events; display an explicitly configured zero battery threshold unchanged.
-
-- Translate the open background-automation preview, retained warning/error/result presentation, alert type labels and dates on ordinary language changes. Keep generated YAML, automation payloads, raw results and authored/server details unchanged.
-
-- Translate first-run guidance, optional support, page-size captions, elapsed-time units and the background alert overview when the Home Assistant language changes, preserving search drafts and administrator controls. Automation payloads and creation behavior remain unchanged.
-
-- Keep search focus and the complete selection after typing or changing the Home Assistant language. Refresh existing translations and administrator automation controls immediately even when sensor states are unchanged.
-
-## 4.2.9 (2026-09-29)
-
-- Correct the Polish and English first-run steps to describe the available search, status filter, tabs and device table.
-
-- Require an administrator before opening or creating background alert automations; household users retain read-only health views.
-
-- Restore the selected tab after reloading a direct HA panel; ignore invalid saved tab values.
-
-- Initialize default battery and offline alert thresholds in the direct HA panel as well as Lovelace cards; preserve per-card threshold overrides.
-- Classify network devices using HA Device/Entity Registry evidence and explicit SSID/connection attributes. Bluetooth/BLE stays separate; MAC/IP alone is Other.
-- Count registered devices once, show unlinked entity states separately, and stop showing demo devices when HA has no readings.
-- Mark devices with no entity states unknown; only an explicit connectivity sensor can mark a device offline. Show a dash for an absent or invalid last-change date instead of the Unix epoch.
-- Keep UNKNOWN visible on light backgrounds and use darker status badge fills for readable white text in both themes.
-- Translate the alert page-size label using the existing English/Polish pagination strings.
-- Replace the large donation panel with a compact optional link after user feedback in issue #2.
+- Classify devices from Home Assistant registries: Bluetooth and Zigbee remain separate; Wi-Fi requires explicit evidence. Count registered physical devices once and show unlinked entity states separately. Refresh on registry events and ordinary state or attribute updates.
+- Accept finite 0–100 battery levels from battery device classes or battery names with percent units. Preserve decimals and zero; exclude quantity helpers, humidity and malformed values. Summaries and alerts count each physical device once while individual readings remain visible.
+- Keep continuous incidents once in history. Acknowledgement lasts until recovery; a later incident can alert again. Wait for registry identity before creating history or displaying physical alert counts; show loading/errors with explicit retry.
+- Measure offline alert delay from connectivity failure. Keep devices without current state unknown, and show unknown elapsed time for invalid dates.
+- Preserve background notifications with an explicit administrator preview and Create action. Prevent duplicate writes and stop further writes after account/role changes or disconnect. Display partial-save/reload errors and disabled, unavailable or unknown automation states. Use notification service calls compatible with HA 2024.1.
+- Apply configured battery thresholds consistently to colors, summaries, alerts and the generator, including zero and boundary values. Normalize invalid thresholds and refresh alerts immediately after configuration changes.
+- Sort the device table by name in both directions through a keyboard-accessible button. Keep the sorting button focus and the current page through ordinary HA updates.
+- Keep modal keyboard focus inside the preview, support Escape before saving and return focus to its opener. Preserve YAML, caret, editor drafts and search selection through ordinary updates and language changes.
+- Translate first-run guidance, status, network groups, editor, preview, alerts and pagination in English and Polish without changing authored names, models or generated payloads.
+- Keep the support link compact, optional and administrator-only, with remembered dismissal and `show_support: false`.
+- Document registry evidence, history lifetime, local browser preferences, manual/HACS resource cleanup and the limits of generated background notifications.
 
 ## 4.2.8 (2026-08-28)
 

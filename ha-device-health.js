@@ -1,4 +1,4 @@
-/* HA Tools split — ha-device-health v4.2.9 (2026-09-29) — single-tool standalone repo */
+/* HA Tools split — ha-device-health v4.2.9 (2026-10-09) — single-tool standalone repo */
 (function() {
 'use strict';
 
@@ -1907,6 +1907,12 @@ class HADeviceHealth extends HTMLElement {
         user-select: none;
       }
 
+      .device-sort-name {
+        background: none; border: 0; padding: 0; color: inherit; font: inherit;
+        text-transform: inherit; letter-spacing: inherit; cursor: pointer;
+      }
+      .device-sort-name:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+
       .device-table th:hover {
         background: var(--dc);
       }
@@ -2433,7 +2439,9 @@ class HADeviceHealth extends HTMLElement {
       }
     `;
 
-    const devices = this._getDevices();
+    const devices = this._getDevices().sort((a, b) =>
+      a.name.localeCompare(b.name, this._lang) * (this._sortBy === "name-desc" ? -1 : 1)
+    );
     const registryUnknown = this._registryStatus !== 'ready' && !this._deviceRegistry.size;
     const batteries = this._getBatteryDevices();
     const networks = this._getNetworkDevices();
@@ -2513,7 +2521,7 @@ class HADeviceHealth extends HTMLElement {
           <table class="device-table">
             <thead>
               <tr>
-                <th data-sort="name">${this._t('name')}</th>
+                <th data-sort="name" aria-sort="${this._sortBy === 'name-desc' ? 'descending' : 'ascending'}"><button type="button" class="device-sort-name">${this._t('name')}</button></th>
                 <th>${this._t('type')}</th>
                 <th>${this._t('status')}</th>
                 <th>${this._t('lastSeen')}</th>
@@ -2883,6 +2891,8 @@ ${style}
       if (dialogSelection && target.matches('.automation-yaml-preview')) target.setSelectionRange(...dialogSelection);
     } else if (oldDialog) {
       this.shadowRoot.querySelector('.background-alerts-generate')?.focus({ preventScroll: true });
+    } else if (activeElement?.matches('.device-sort-name')) {
+      this.shadowRoot.querySelector('.device-sort-name')?.focus({ preventScroll: true });
     } else if (focusedSearch) {
       const search = this.shadowRoot.querySelector('.search-box');
       if (search) {
@@ -3039,12 +3049,9 @@ ${style}
     const sortHeaders = this.shadowRoot.querySelectorAll(".device-table th[data-sort]");
     sortHeaders.forEach((header) => {
       header.addEventListener("click", (e) => {
-        const sortBy = e.target.dataset.sort;
-        if (this._sortBy === sortBy) {
-          this._sortBy = "";
-        } else {
-          this._sortBy = sortBy;
-        }
+        const sortBy = e.currentTarget.dataset.sort;
+        this._sortBy = this._sortBy === sortBy ? sortBy + "-desc" : sortBy;
+        this._currentPage = 1;
         this._render();
       });
     });
