@@ -43,12 +43,19 @@ registries through your Home Assistant connection — no extra integration or YA
 
 ## Screenshots
 
-| Light | Dark |
-|---|---|
-| ![Batteries tab, light theme](docs/screenshots/card-batteries-light.png) | ![Batteries tab, dark theme](docs/screenshots/card-batteries-dark.png) |
+These are native Home Assistant screenshots with synthetic QA devices and
+reserved test addresses. They show the English light theme and Polish dark
+theme; the device table is filtered to the three QA devices.
 
-*The Batteries tab with synthetic sensor names and levels, sorted worst-first
-with a needs-attention summary. Dark mode follows your Home Assistant theme.*
+| View | English, light | Polish, dark, narrow |
+|---|---|---|
+| Devices | ![Devices in native HA](docs/screenshots/card-devices-light.png) | ![Urządzenia w natywnym HA](docs/screenshots/card-devices-dark.png) |
+| Batteries | ![Battery readings in native HA](docs/screenshots/card-batteries-light.png) | ![Baterie w natywnym HA](docs/screenshots/card-batteries-dark.png) |
+| Network | ![Two Wi-Fi devices, one BLE device and a real synthetic signal reading](docs/screenshots/card-network-light.png) | ![Sieć w natywnym HA](docs/screenshots/card-network-dark.png) |
+| Alerts | ![Device alerts and history in native HA](docs/screenshots/card-alerts-light.png) | ![Alerty w natywnym HA](docs/screenshots/card-alerts-dark.png) |
+
+Dark mode follows your Home Assistant theme. The signal chart uses available
+RSSI readings; missing readings do not become a zero signal value.
 
 ## Installation
 
@@ -68,6 +75,11 @@ use Settings → Dashboards → Resources; YAML configurations can declare the s
 module in `lovelace.resources`. Keep one resource for this card. When moving from
 manual installation to HACS, remove only your old Device Health resource and use
 the HACS resource, then reload the browser. Other dashboard resources stay in place.
+
+If a reload still shows an older card, refresh the cached files for your HA site
+and reload again. Keep sign-in data. Multiple URLs for the same Device Health
+script can retain different cached versions; remove only your own obsolete
+registration when consolidating them.
 
 ## Quick start
 
