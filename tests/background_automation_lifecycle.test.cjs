@@ -119,3 +119,34 @@ test('partial success and reload failure stay truthful and release the pending g
     assert.equal(card._backgroundAlertResult.reload.ok, true);
   } finally { finish(); dom.window.close(); }
 });
+
+for (const change of ['disconnect', 'disconnect and reconnect', 'same-user connection replacement']) {
+  test(`${change} during a pending write stops subsequent writes and discards stale results`, async () => {
+    const { dom, card, posts, services, finish } = setup();
+    try {
+      dom.window.document.body.append(card);
+      const first = card._createBackgroundAlertAutomations();
+      if (change.startsWith('disconnect')) {
+        card.remove();
+        if (change === 'disconnect and reconnect') dom.window.document.body.append(card);
+      } else card.hass = { ...card._hass, connection: {} };
+      finish(); await first;
+      assert.equal(posts.length, 1);
+      assert.deepEqual(services, []);
+      assert.equal(card._backgroundAlertDialog, null);
+      assert.equal(card._backgroundAlertResult, null);
+    } finally { finish(); dom.window.close(); }
+  });
+}
+
+test('connection replacement clears a preview built from the previous session', () => {
+ const {dom,card,finish}=setup();
+ try {
+  dom.window.document.body.append(card);
+  const before=card._backgroundAlertDialog;
+  assert.ok(before);
+  card.hass={...card._hass,connection:{}};
+  assert.equal(card._backgroundAlertDialog,null);
+  assert.equal(card._backgroundAlertResult,null);
+ } finally {finish();dom.window.close();}
+});

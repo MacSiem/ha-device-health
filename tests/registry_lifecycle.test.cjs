@@ -73,7 +73,7 @@ test('changing sessions immediately removes existing registry names and alert hi
   } finally { dom.window.close(); }
 });
 
-test('disconnect discards a pending registry response and reconnect obtains current data', async () => {
+test('disconnect discards a pending registry response and reconnect obtains current data', { timeout: 5000 }, async () => {
   const { dom, card, hass } = setup();
   const finish = [];
   hass.callWS = ({ type }) => new Promise(resolve => finish.push(() => resolve(registry(type, 'QA old connection'))));
@@ -81,8 +81,9 @@ test('disconnect discards a pending registry response and reconnect obtains curr
     card.hass = hass; const oldPending = card._registryLoading;
     await Promise.resolve(); card.remove();
     for (const resolve of finish) resolve(); await oldPending;
-    dom.window.document.body.append(card);
+    // HA supplies current hass before attaching a reconstructed card.
     card.hass = { ...hass, callWS: async ({ type }) => registry(type, 'QA current connection') };
+    dom.window.document.body.append(card);
     await card._registryLoading;
     const text = card.shadowRoot.querySelector('.device-table').textContent;
     assert.equal(text.includes('QA old connection'), false);
