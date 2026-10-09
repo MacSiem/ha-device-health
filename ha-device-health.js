@@ -1227,8 +1227,10 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _getConfigNumber(key, fallback) {
-    const value = Number(this._config?.[key]);
-    return Number.isFinite(value) && value > 0 ? value : fallback;
+    const raw = this._config?.[key];
+    if (raw == null || (typeof raw === 'string' && !raw.trim())) return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
   }
 
   _getDetectedBatteryEntityIds() {
@@ -2421,7 +2423,9 @@ class HADeviceHealth extends HTMLElement {
     const observed = devices.filter(device => device.status !== 'unknown').length;
     const availability = observed ? `${((online / observed) * 100).toFixed(1)}%` : 'N/A';
 
-    const batteryNeedingAttention = batteries.filter((b) => b.level < this._config.battery_warning).length;
+    const batteryNeedingAttention = new Set(batteries
+      .filter(battery => battery.level <= this._config.battery_warning)
+      .map(battery => this._deviceRegistry.get(this._entityRegistry.get(battery.id)?.device_id)?.id || battery.id)).size;
 
     let html = `
       <div class="card">
@@ -3171,6 +3175,13 @@ ${style}
       battery_critical: 10,
       offline_alert_minutes: 60,
     };
+  }
+
+  connectedCallback() {
+    if (this._hass) {
+      this._loadRegistries();
+      this._subscribeRegistryUpdates();
+    }
   }
 
   disconnectedCallback() {
