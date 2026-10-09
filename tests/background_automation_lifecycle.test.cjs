@@ -150,3 +150,19 @@ test('connection replacement clears a preview built from the previous session', 
   assert.equal(card._backgroundAlertResult,null);
  } finally {finish();dom.window.close();}
 });
+
+
+test('HA structured HTTP errors show a useful status and never stringify an object', async () => {
+  const { dom, card, finish } = setup();
+  try {
+    card._hass.callApi = async () => { throw { error: 'request_failed', status_code: 500, body: null }; };
+    await card._createBackgroundAlertAutomations();
+    const results = card._backgroundAlertResult.results;
+    assert.equal(results.every(r => r.ok === false), true);
+    assert.equal(results.every(r => /HTTP 500/.test(r.message)), true);
+    assert.equal(results.some(r => r.message.includes('[object Object]')), false);
+    card._hass.callApi = async () => { throw { message: '<img src=x onerror=alert(1)>' }; };
+    await card._createBackgroundAlertAutomations();
+    assert.equal(card.shadowRoot.querySelector('.automation-results img'), null, 'known error text remains escaped');
+  } finally { finish(); dom.window.close(); }
+});

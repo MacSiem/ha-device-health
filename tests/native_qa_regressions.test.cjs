@@ -187,3 +187,37 @@ test('device name sorting orders every registry record, reverses through a keybo
     assert.equal(card.shadowRoot.querySelector('.stats').textContent.includes('Total Devices: 20'), true);
   } finally { dom.window.close(); }
 });
+
+
+test('offline alert expires on its own clock and disconnect cancels the outstanding deadline', () => {
+  const { dom, card, hass } = setup();
+  const start = 1800000000000;
+  let now = start, callback, scheduledDelay, cancelled = false;
+  const originalTimeout = dom.window.setTimeout.bind(dom.window);
+  const originalClear = dom.window.clearTimeout.bind(dom.window);
+  dom.window.Date.now = () => now;
+  dom.window.setTimeout = (fn, delay) => {
+    if (delay > 5000) { callback = fn; scheduledDelay = delay; return 98765; }
+    return originalTimeout(fn, delay);
+  };
+  dom.window.clearTimeout = id => { if (id === 98765) cancelled = true; else originalClear(id); };
+  try {
+    card.setConfig({ show_support: false, offline_alert_minutes: 1 });
+    card._deviceRegistry = new Map([['qa-device', { id: 'qa-device', name: 'QA device' }]]);
+    card._entityRegistry = new Map([['binary_sensor.qa_connectivity', { entity_id: 'binary_sensor.qa_connectivity', device_id: 'qa-device' }]]);
+    hass.states['binary_sensor.qa_connectivity'] = { entity_id: 'binary_sensor.qa_connectivity', state: 'off',
+      last_changed: new Date(start).toISOString(), attributes: { device_class: 'connectivity' } };
+    card.hass = hass;
+    assert.equal(card._alerts.some(a => a.type === 'offline'), false);
+    assert.equal(typeof callback, 'function', 'elapsed time needs a producer without further HA changes');
+    assert.ok(scheduledDelay >= 60000 && scheduledDelay <= 60001);
+    now = start + 60001; callback();
+    assert.equal(card._alerts.filter(a => a.type === 'offline').length, 1);
+    assert.equal(card._alertHistory.filter(a => a.type === 'offline').length, 1);
+    card._generateAlerts();
+    assert.equal(card._alertHistory.filter(a => a.type === 'offline').length, 1, 'same incident is retained');
+    now = start; callback = undefined; cancelled = false; card._generateAlerts();
+    assert.equal(typeof callback, 'function');
+    card.remove(); assert.equal(cancelled, true, 'unmounted card must stop its own clock');
+  } finally { dom.window.close(); }
+});
