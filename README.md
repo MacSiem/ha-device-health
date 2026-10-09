@@ -57,6 +57,8 @@ theme; the device table is filtered to the three QA devices.
 | Network | ![Two Wi-Fi devices, one BLE device and a real synthetic signal reading](docs/screenshots/card-network-light.png) | ![Sieć w natywnym HA](docs/screenshots/card-network-dark.png) |
 | Alerts | ![Device alerts and history in native HA](docs/screenshots/card-alerts-light.png) | ![Alerty w natywnym HA](docs/screenshots/card-alerts-dark.png) |
 
+Additional native checks show [router disconnection with GPS and another connected device staying online](docs/screenshots/review-router-connectivity.png), and [a valid −95 dBm attribute reading when signal entities are damaged](docs/screenshots/review-rssi-fallback.png). Screenshot source commits and test scope are recorded in [the provenance](docs/screenshots/README.md).
+
 Dark mode follows your Home Assistant theme. The signal chart uses available
 RSSI readings. Invalid signal entities are skipped in favor of valid sibling
 readings, then numeric `rssi` or `signal_strength` attributes. Missing readings
