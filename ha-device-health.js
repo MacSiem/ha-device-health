@@ -582,6 +582,7 @@ class HADeviceHealth extends HTMLElement {
     // Throttle control
     this._renderScheduled = false;
     this._renderTimer = null;
+    this._offlineTimer = null;
     this._scrollFrame = null;
     this._scrollTimer = null;
     this._firstRender = true;
@@ -640,6 +641,8 @@ class HADeviceHealth extends HTMLElement {
         generationFailed: "Automation generation failed: {detail}",
         reloadCalled: "automation.reload service called.",
         reloadFailed: "automation.reload failed: {detail}",
+        haRequestFailed: "Home Assistant request failed.",
+        haHttpError: "Home Assistant request failed (HTTP {status}).",
         alert_type_battery_critical: "battery critical",
         alert_type_battery_warning: "battery warning",
         alert_type_signal_weak: "signal weak",
@@ -743,6 +746,8 @@ class HADeviceHealth extends HTMLElement {
         generationFailed: "Generowanie automatyzacji nie powiodło się: {detail}",
         reloadCalled: "Wywołano usługę automation.reload.",
         reloadFailed: "Przeładowanie automation.reload nie powiodło się: {detail}",
+        haRequestFailed: "Żądanie Home Assistant nie powiodło się.",
+        haHttpError: "Żądanie Home Assistant nie powiodło się (HTTP {status}).",
         alert_type_battery_critical: "krytyczny poziom baterii",
         alert_type_battery_warning: "niski poziom baterii",
         alert_type_signal_weak: "słaby sygnał",
@@ -863,6 +868,7 @@ class HADeviceHealth extends HTMLElement {
     }
     this._backgroundAutomationUserId = hass?.user?.id;
     if (registrySessionChanged) {
+      this._clearOfflineTimer();
       this._stopRegistryUpdates();
       this._registryEpoch++;
       this._registryLoading = null;
@@ -1129,7 +1135,13 @@ class HADeviceHealth extends HTMLElement {
       !this._entityRegistry.size && !this._deviceRegistry.size);
   }
 
+  _clearOfflineTimer() {
+    if (this._offlineTimer !== null) clearTimeout(this._offlineTimer);
+    this._offlineTimer = null;
+  }
+
   _generateAlerts() {
+    this._clearOfflineTimer();
     // Initial registry failure/loading cannot establish whether two readings
     // belong to one device. Keep history untouched until identity is known.
     if (this._registryIdentityUnknown()) return;
@@ -1141,14 +1153,25 @@ class HADeviceHealth extends HTMLElement {
     const batteryWarning = this._config.battery_warning;
     const batteryCritical = this._config.battery_critical;
 
-    // Device offline alerts
+    // Time passing is itself a producer: schedule only the nearest pending
+    // offline deadline, instead of waiting for another sensor state change.
+    let nextOfflineDeadline = Infinity;
     this._getDevices().forEach((device) => {
-      if (device.status === "offline" && (now - Date.parse(device.offlineSince)) > offlineThreshold) {
-        this._addAlert("offline", device.name, device.id, "critical");
+      if (device.status === "offline") {
+        const deadline = Date.parse(device.offlineSince) + offlineThreshold + 1;
+        if (now >= deadline) this._addAlert("offline", device.name, device.id, "critical");
+        else if (Number.isFinite(deadline)) nextOfflineDeadline = Math.min(nextOfflineDeadline, deadline);
       } else if (device.status === "unavailable") {
         this._addAlert("unavailable", device.name, device.id, "warning");
       }
     });
+
+    if (this.isConnected && Number.isFinite(nextOfflineDeadline)) {
+      this._offlineTimer = setTimeout(() => {
+        this._offlineTimer = null;
+        if (this.isConnected && this._hass) this._update();
+      }, Math.min(nextOfflineDeadline - now, 2147483647));
+    }
 
     // Keep individual battery readings in the Batteries tab, but alert once
     // per registered physical device using its lowest percentage reading.
@@ -1416,6 +1439,15 @@ class HADeviceHealth extends HTMLElement {
     return `${pad}${this._yamlScalar(value)}`;
   }
 
+  _backgroundAlertError(error) {
+    for (const message of [error?.message, error?.body?.message, typeof error === 'string' ? error : null]) {
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+    const status = error?.status_code ?? error?.status;
+    return Number.isInteger(status) && status >= 100 && status <= 599
+      ? `Home Assistant request failed (HTTP ${status}).` : 'Home Assistant request failed.';
+  }
+
   _backgroundAlertMessage(message) {
     const value = String(message ?? '');
     const exact = {
@@ -1425,9 +1457,11 @@ class HADeviceHealth extends HTMLElement {
       'No monitored device entities were detected, so the offline automation cannot be generated.': 'noMonitoredEntities',
       'Home Assistant state is not available yet. Open the card after Home Assistant finishes loading and try again.': 'haStateNotReady',
       'automation.reload service called.': 'reloadCalled',
+      'Home Assistant request failed.': 'haRequestFailed',
     };
     if (Object.prototype.hasOwnProperty.call(exact, value)) return this._t(exact[value]);
     const patterns = [
+      [/^Home Assistant request failed \(HTTP (\d{3})\)\.$/, 'haHttpError', ['status']],
       [/^Detected (\d+) battery sensors\. The automation will use the first 150\.$/, 'batteryLimit', ['count']],
       [/^Created automation (.+)\.$/, 'automationCreated', ['id']],
       [/^Updated existing automation (.+)\.$/, 'automationUpdated', ['id']],
@@ -1439,7 +1473,7 @@ class HADeviceHealth extends HTMLElement {
     for (const [pattern, key, fields] of patterns) {
       const match = value.match(pattern);
       if (!match) continue;
-      const values = Object.fromEntries(fields.map((field, index) => [field, match[index + 1]]));
+      const values = Object.fromEntries(fields.map((field, index) => [field, field === 'detail' ? this._backgroundAlertMessage(match[index + 1]) : match[index + 1]]));
       return this._t(key).replace(/\{(\w+)\}/g, (token, field) => values[field] ?? token);
     }
     return value;
@@ -1584,7 +1618,7 @@ class HADeviceHealth extends HTMLElement {
         automations: [],
         yaml: "",
         warnings: [],
-        errors: [`Automation generation failed: ${error?.message || error}`],
+        errors: [`Automation generation failed: ${this._backgroundAlertError(error)}`],
       };
     }
     this._render();
@@ -1626,7 +1660,7 @@ class HADeviceHealth extends HTMLElement {
             ok: false,
             label: automation.label,
             id: automation.id,
-            message: `Failed to ${existed ? "update" : "create"} automation ${automation.id}: ${error?.message || error}`,
+            message: `Failed to ${existed ? "update" : "create"} automation ${automation.id}: ${this._backgroundAlertError(error)}`,
           });
         }
         if (!isCurrent()) return;
@@ -1639,7 +1673,7 @@ class HADeviceHealth extends HTMLElement {
           await this._hass.callService('automation', 'reload');
           reload = { ok: true, message: "automation.reload service called." };
         } catch (error) {
-          reload = { ok: false, message: `automation.reload failed: ${error?.message || error}` };
+          reload = { ok: false, message: `automation.reload failed: ${this._backgroundAlertError(error)}` };
         }
         if (!isCurrent()) return;
       }
@@ -3237,6 +3271,7 @@ ${style}
     if (this._hass) {
       this._loadRegistries();
       this._subscribeRegistryUpdates();
+      this._update();
     }
   }
 
@@ -3244,6 +3279,7 @@ ${style}
     if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
     this._backgroundAlertDialog = null;
     this._backgroundAlertResult = null;
+    this._clearOfflineTimer();
     this._stopRegistryUpdates();
     this._registryEpoch++;
     this._registryLoading = null;

@@ -2,6 +2,9 @@
 
 ## 4.2.9 (2026-10-09)
 
+- Offline alerts appear when their configured delay expires, even if no other sensor changes; the pending deadline is cancelled when the card is removed.
+- Structured Home Assistant save errors show a readable message or HTTP status, with Polish and English fallback text.
+
 - Classify devices from Home Assistant registries: Bluetooth and Zigbee remain separate; Wi-Fi requires explicit evidence. Count registered physical devices once and show unlinked entity states separately. Refresh on registry events and ordinary state or attribute updates.
 - Accept finite 0–100 battery levels from battery device classes or battery names with percent units. Preserve decimals and zero; exclude quantity helpers, humidity and malformed values. Summaries and alerts count each physical device once while individual readings remain visible.
 - Keep continuous incidents once in history. Acknowledgement lasts until recovery; a later incident can alert again. Wait for registry identity before creating history or displaying physical alert counts; show loading/errors with explicit retry.

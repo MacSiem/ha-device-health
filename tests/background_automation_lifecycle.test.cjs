@@ -161,8 +161,11 @@ test('HA structured HTTP errors show a useful status and never stringify an obje
     assert.equal(results.every(r => r.ok === false), true);
     assert.equal(results.every(r => /HTTP 500/.test(r.message)), true);
     assert.equal(results.some(r => r.message.includes('[object Object]')), false);
+    card._lang = 'pl'; card._render();
+    assert.match(card.shadowRoot.textContent, /Żądanie Home Assistant nie powiodło się \(HTTP 500\)/);
     card._hass.callApi = async () => { throw { message: '<img src=x onerror=alert(1)>' }; };
     await card._createBackgroundAlertAutomations();
-    assert.equal(card.shadowRoot.querySelector('.automation-results img'), null, 'known error text remains escaped');
+    assert.ok(card.shadowRoot.querySelector('.automation-dialog').textContent.includes('<img src=x onerror=alert(1)>'));
+    assert.equal(card.shadowRoot.querySelector('.automation-dialog img'), null, 'known error text remains escaped');
   } finally { finish(); dom.window.close(); }
 });
