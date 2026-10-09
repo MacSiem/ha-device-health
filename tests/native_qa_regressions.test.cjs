@@ -165,7 +165,7 @@ test('device name sorting orders every registry record, reverses through a keybo
   const entities = devices.map(device => ({ entity_id: 'sensor.' + device.id, device_id: device.id }));
   hass.states = Object.fromEntries(entities.map(entity => [entity.entity_id, { entity_id: entity.entity_id, state: 'on', attributes: {} }]));
   hass.callWS = async ({ type }) => type === 'config/device_registry/list' ? devices : entities;
-  const names = () => Array.from(card.shadowRoot.querySelectorAll('.device_table tbody tr'), row => row.querySelector('td').textContent.trim());
+  const names = () => Array.from(card.shadowRoot.querySelectorAll('.device-table tbody tr'), row => row.querySelector('td').textContent.trim());
   try {
     card.hass = hass; await card._registryLoading; card.setActiveTab('devices');
     assert.equal(names()[0], 'Device 01', 'initial name order is alphabetical, not registry insertion order');
