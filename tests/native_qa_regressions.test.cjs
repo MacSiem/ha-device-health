@@ -150,7 +150,7 @@ test('physical battery summary and alert count stay unknown while the initial re
     assert.equal(card.shadowRoot.querySelectorAll('.battery-card').length, 2, 'readings themselves are already available');
     assert.match(card.shadowRoot.querySelector('.stats').textContent, /— device\(s\) need attention/);
     card.setActiveTab('alerts');
-    assert.match(card.shadowRoot.querySelector('.alerts-header').textContent, /Active Alerts: —/);
+    assert.match(card.shadowRoot.querySelector('.stats').textContent, /Active Alerts: —/);
     for (const resolve of finish) resolve(); await pending;
     assert.equal(card._alertHistory.length, 1);
     card.setActiveTab('batteries');

@@ -820,7 +820,10 @@ class HADeviceHealth extends HTMLElement {
       ...HADeviceHealth.getStubConfig(),
       ...config,
     };
-    if (this._hass) this._render();
+    for (const [key, fallback] of Object.entries(HADeviceHealth.getStubConfig())) {
+      if (key !== 'type') this._config[key] = this._getConfigNumber(key, fallback);
+    }
+    if (this._hass) this._update();
   }
 
   _computeStateHash() {
@@ -1121,7 +1124,15 @@ class HADeviceHealth extends HTMLElement {
     return networks;
   }
 
+  _registryIdentityUnknown() {
+    return Boolean(this._hass?.callWS && this._registryStatus !== 'ready' &&
+      !this._entityRegistry.size && !this._deviceRegistry.size);
+  }
+
   _generateAlerts() {
+    // Initial registry failure/loading cannot establish whether two readings
+    // belong to one device. Keep history untouched until identity is known.
+    if (this._registryIdentityUnknown()) return;
     this._alerts = [];
     this._previousAlertEpisodes = this._alertEpisodes;
     this._alertEpisodes = new Map();
@@ -1214,8 +1225,8 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _getBatteryColor(level) {
-    if (level < 10) return "#EF4444";
-    if (level < 30) return "#F59E0B";
+    if (level <= this._config.battery_critical) return "#EF4444";
+    if (level <= this._config.battery_warning) return "#F59E0B";
     return "#10B981";
   }
 
@@ -1497,7 +1508,7 @@ class HADeviceHealth extends HTMLElement {
 
     return `
       <div class="automation-dialog-backdrop">
-        <div class="automation-dialog" role="dialog" aria-modal="true" aria-label="${this._t('previewDialog')}">
+        <div class="automation-dialog" role="dialog" aria-modal="true" aria-label="${this._t('previewDialog')}" tabindex="-1">
           <div class="automation-dialog-title">${this._t('backgroundAlerts')}</div>
           <div class="automation-dialog-note">
             ${this._t('previewNote')}
@@ -1653,6 +1664,13 @@ class HADeviceHealth extends HTMLElement {
     if (!this._hass) return;
     this._renderedLang = this._lang;
     this._renderedIsAdmin = this._hass.user?.is_admin === true;
+    const oldDialog = this.shadowRoot.querySelector('.automation-dialog');
+    const activeElement = this.shadowRoot.activeElement;
+    const dialogFocusClass = oldDialog?.contains(activeElement)
+      ? ['automation-yaml-preview', 'automation-dialog-cancel', 'automation-dialog-create']
+        .find(className => activeElement.classList.contains(className)) : null;
+    const dialogSelection = dialogFocusClass === 'automation-yaml-preview'
+      ? [activeElement.selectionStart, activeElement.selectionEnd, activeElement.selectionDirection] : null;
     const focusedSearch = this.shadowRoot.activeElement?.matches('.search-box')
       ? this.shadowRoot.activeElement : null;
     const searchSelection = focusedSearch
@@ -2557,7 +2575,7 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats">
-            ${this._t('batteryHealthSummary')}: ${batteryNeedingAttention} ${this._t('deviceNeedAttention')}
+            ${this._t('batteryHealthSummary')}: ${this._registryIdentityUnknown() ? '—' : batteryNeedingAttention} ${this._t('deviceNeedAttention')}
           </div>
           <div class="battery-grid">
             ${paginatedBatteries
@@ -2704,12 +2722,12 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats" aria-live="polite" aria-atomic="true">
-            ${this._t('activeAlerts')}: ${this._alerts.length}
+            ${this._t('activeAlerts')}: ${this._registryIdentityUnknown() ? '—' : this._alerts.length}
           </div>
           ${this._renderBackgroundAlertsSection()}
       `;
 
-      if (this._alerts.length === 0) {
+      if (this._alerts.length === 0 && !this._registryIdentityUnknown()) {
         html += `<div class="empty-state">${this._t('noActiveAlerts')}</div>`;
       } else {
         paginatedAlerts.forEach((alert) => {
@@ -2853,7 +2871,19 @@ ${style}
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
     this._drawSignalChart();
-    if (focusedSearch) {
+    const dialog = this.shadowRoot.querySelector('.automation-dialog');
+    for (const child of this.shadowRoot.children) {
+      if (child.tagName !== 'STYLE' && !child.contains(dialog)) child.toggleAttribute('inert', Boolean(dialog));
+    }
+    if (dialog) {
+      const retainedFocus = dialogFocusClass && dialog.querySelector('.' + dialogFocusClass);
+      const target = retainedFocus && !retainedFocus.disabled ? retainedFocus
+        : dialog.querySelector('.automation-dialog-cancel:not(:disabled)') || dialog.querySelector('.automation-yaml-preview');
+      target.focus({ preventScroll: true });
+      if (dialogSelection && target.matches('.automation-yaml-preview')) target.setSelectionRange(...dialogSelection);
+    } else if (oldDialog) {
+      this.shadowRoot.querySelector('.background-alerts-generate')?.focus({ preventScroll: true });
+    } else if (focusedSearch) {
       const search = this.shadowRoot.querySelector('.search-box');
       if (search) {
         search.focus({ preventScroll: true });
@@ -2917,6 +2947,24 @@ ${style}
   }
 
   _attachEventListeners() {
+    const dialog = this.shadowRoot.querySelector('.automation-dialog');
+    if (dialog) dialog.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (!this._backgroundAlertDialog?.creating) {
+          this._backgroundAlertDialog = null;
+          this._render();
+        }
+      } else if (event.key === 'Tab') {
+        const controls = [...dialog.querySelectorAll('textarea, button:not(:disabled)')];
+        const first = controls[0], last = controls.at(-1);
+        if ((event.shiftKey && this.shadowRoot.activeElement === first) ||
+            (!event.shiftKey && this.shadowRoot.activeElement === last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus({ preventScroll: true });
+        }
+      }
+    });
     const registryRetry = this.shadowRoot.querySelector('.registry-retry');
     if (registryRetry) registryRetry.addEventListener('click', () => this._loadRegistries(true));
     const tabs = this.shadowRoot.querySelectorAll(".tab-btn");
