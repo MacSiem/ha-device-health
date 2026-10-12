@@ -2,6 +2,43 @@
 (function() {
 'use strict';
 
+// HA Tools v3: vendored inside each consumer's own closure, never a window API.
+function createUiV3({ language = 'en' } = {}) {
+  const pl = String(language).startsWith('pl');
+  const states = {
+    success: ['Success', 'Sukces', '✓'],
+    partial: ['Partial', 'Częściowo', '½'],
+    unconfirmed: ['Unconfirmed', 'Niepotwierdzony', '?'],
+    error: ['Error', 'Błąd', '✕'],
+    not_checked: ['Not checked', 'Nie sprawdzono', '–'],
+    no_data: ['No data', 'Brak danych', '∅'],
+  };
+  const status = (value) => {
+    const code = typeof value === 'string' && Object.hasOwn(states, value) ? value : 'not_checked';
+    const row = states[code];
+    return { code, label: row[pl ? 1 : 0], icon: row[2], countsAsSuccess: code === 'success' };
+  };
+  const statusHtml = (value) => {
+    const result = status(value);
+    return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
+  };
+  const css = `
+.ht-result-state { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid currentColor;border-radius:6px;font-size:12px;line-height:1.4;white-space:normal; }
+.ht-result-state--success { color:#237b3d;background:rgba(35,123,61,.10); }
+.ht-result-state--partial { color:#966400;background:rgba(150,100,0,.10); }
+.ht-result-state--unconfirmed { color:#ad5200;background:rgba(173,82,0,.10); }
+.ht-result-state--error { color:#c32b2b;background:rgba(195,43,43,.10); }
+.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--secondary-text-color,#666);background:transparent; }
+.ht-result-state--no_data { border-style:dashed; }
+:host(.bento-dark) .ht-result-state--success { color:#81cf99; }
+:host(.bento-dark) .ht-result-state--partial { color:#efd080; }
+:host(.bento-dark) .ht-result-state--unconfirmed { color:#ffb97b; }
+:host(.bento-dark) .ht-result-state--error { color:#ff9999; }
+`;
+  return { status, statusHtml, css };
+}
+
+
 // Component-local XSS protection: never reads from or publishes a global helper.
 const _esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
@@ -567,6 +604,44 @@ class HADeviceHealth extends HTMLElement {
     this._batterySortBy = "level";
     this._alerts = [];
     this._alertHistory = [];
+    this._historyDevice = '';
+    this._historyDays = 7;
+    this._historyView = 'chart';
+    this._historyState = 'idle';
+    this._historyResult = null;
+    this._historyAttempt = null;
+    this._historySelected = null;
+    this._historyPage = 0;
+    this._historyStale = false;
+    this._historyEpoch = 0;
+    this._historyWire = null;
+    this._historyTimer = null;
+    this._historyDeadlineMs = 15000;
+    this._historyConnection = null;
+    this._historyConnectionReady = false;
+    this._historyBrowserBound = false;
+    this._historyBrowserOnline = navigator.onLine !== false;
+    this._historyReadyHandler = () => {
+      this._historyConnectionReady = this._hass?.connection?.connected === true;
+      this._cancelDeviceHistory('not_checked');
+      this._historyConnected = this._hass?.connection?.connected === true;
+      if (this.isConnected) this._render();
+    };
+    this._historyDisconnectHandler = () => {
+      this._historyConnectionReady = false;
+      this._cancelDeviceHistory('offline');
+      if (this.isConnected) this._render();
+    };
+    this._historyOnlineHandler = () => {
+      this._historyBrowserOnline = true;
+      this._cancelDeviceHistory('not_checked');
+      if (this.isConnected) this._render();
+    };
+    this._historyOfflineHandler = () => {
+      this._historyBrowserOnline = false;
+      this._cancelDeviceHistory('offline');
+      if (this.isConnected) this._render();
+    };
     this._alertEpisodes = new Map();
     this._acknowledgedAlerts = new Set();
     this._lastUpdate = Date.now();
@@ -885,6 +960,7 @@ class HADeviceHealth extends HTMLElement {
     }
     this._registrySession = registrySession;
     this._hass = hass;
+    this._syncHistoryContext();
     this._loadRegistries();
     this._subscribeRegistryUpdates();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
@@ -1010,6 +1086,366 @@ class HADeviceHealth extends HTMLElement {
   _update() {
     this._generateAlerts();
     this._render();
+  }
+
+  _ht(key) {
+    const labels = {
+      title: ['Recorded device history', 'Zapisana historia urządzenia'],
+      device: ['Device', 'Urządzenie'], range: ['Range', 'Zakres'], days: ['days', 'dni'],
+      load: ['Load / refresh', 'Pobierz / odśwież'], chart: ['Chart', 'Wykres'], data: ['Data', 'Dane'],
+      idle: ['Select a device, then load its Recorder history.', 'Wybierz urządzenie i pobierz jego historię z Recorder.'],
+      loading: ['Reading Recorder…', 'Odczyt Recorder…'], loaded: ['Recorder read finished.', 'Odczyt Recorder zakończony.'],
+      partial: ['Partial result. Limits, missing sources or invalid records are listed below.', 'Wynik częściowy. Limity, brakujące źródła lub błędne rekordy opisano poniżej.'],
+      no_data: ['No recorded samples returned. Quiet period, exclusions, retention and access filtering cannot be distinguished.', 'Nie zwrócono zapisanych próbek. Nie można rozróżnić ciszy, wykluczenia, retencji i filtrowania dostępu.'],
+      unsupported: ['History is unsupported here. Requires History/Recorder and a supported Core version; household access requires Core 2026.10.1 or newer.', 'Historia nie jest tutaj obsługiwana. Wymaga History/Recorder i obsługiwanego Core; dostęp domownika wymaga Core 2026.10.1 lub nowszego.'],
+      denied: ['History access denied.', 'Odmowa dostępu do historii.'], timeout: ['History deadline exceeded. Refresh explicitly when the pending read settles.', 'Przekroczono czas odczytu historii. Odśwież ręcznie po zakończeniu oczekującego odczytu.'],
+      offline: ['Connection unavailable. Recovery requires an explicit refresh.', 'Połączenie niedostępne. Po przywróceniu odśwież ręcznie.'],
+      error: ['History could not be read.', 'Nie udało się odczytać historii.'],
+      not_checked: ['Selection changed. Load history for this selection.', 'Wybór zmieniony. Pobierz historię tego wyboru.'],
+      stale: ['Previous read — stale', 'Poprzedni odczyt — nieaktualny'],
+      caveat: ['Recorder state updates only. Retention and continuous coverage are unknown. Silence is not a gap or device downtime.', 'Tylko aktualizacje stanu z Recorder. Retencja i ciągłość pokrycia są nieznane. Cisza nie oznacza luki ani niedostępności urządzenia.'],
+      source: ['Source / method', 'Źródło / metoda'], zone: ['Display time zone', 'Strefa wyświetlania'],
+      first: ['First actual record', 'Pierwszy rzeczywisty rekord'], last: ['Last actual record', 'Ostatni rzeczywisty rekord'],
+      samples: ['Projected rows', 'Wiersze projekcji'], limits: ['Limits', 'Limity'],
+      cap: ['Result truncated at a client limit.', 'Wynik ucięty na limicie klienta.'],
+      enabled: ['Enabled registered members', 'Włączone encje w rejestrze'], omitted: ['Members omitted because they are not currently readable or exceed the entity cap', 'Encje pominięte, bo nie są obecnie czytelne lub przekraczają limit'],
+      unknown: ['Unknown', 'Nieznane'], missing: ['Requested entities without returned records', 'Żądane encje bez zwróconych rekordów'],
+      invalid: ['Rejected records', 'Odrzucone rekordy'], entities: ['Requested sources', 'Żądane źródła'],
+      battery: ['Battery sample', 'Próbka baterii'], reported_available: ['Entity reported a state', 'Encja zgłosiła stan'],
+      reported_unknown: ['Entity reported unknown', 'Encja zgłosiła unknown'], reported_unavailable: ['Entity reported unavailable', 'Encja zgłosiła unavailable'],
+      connection: ['Measured connection state', 'Zmierzony stan połączenia'],
+      details: ['Selected record', 'Wybrany rekord'], select: ['Select a mark or a Data row to inspect its exact value.', 'Wybierz punkt lub wiersz danych, aby sprawdzić dokładną wartość.'],
+      queriedUntil: ['Read through (UTC)', 'Odczytano do (UTC)'], queries: ['Completed daily queries', 'Ukończone zapytania dobowe'],
+      time: ['Recorded at', 'Czas zapisu'], value: ['Value / state', 'Wartość / stan'], events: ['Entity availability and measured connection events', 'Zdarzenia dostępności encji i zmierzonego połączenia'],
+      eventNote: ['Entity unknown/unavailable is not evidence that the physical device was offline.', 'Stan unknown/unavailable encji nie dowodzi niedostępności fizycznego urządzenia.'],
+      recordPrevious: ['Previous record', 'Poprzedni rekord'], recordNext: ['Next record', 'Następny rekord'],
+      snapshot: ['Current state snapshot — separate from Recorder history.', 'Bieżący stan — osobno od historii Recorder.'],
+      page: ['Page', 'Strona'], previous: ['Previous', 'Poprzednia'], next: ['Next', 'Następna'],
+      session: ['Existing alert history below contains observations from this browser session.', 'Dotychczasowa historia alertów poniżej zawiera obserwacje z tej sesji przeglądarki.'],
+      inspected: ['Inspected records', 'Sprawdzone rekordy'], subset: ['Visible member entities queried', 'Odpytywane widoczne encje urządzenia'],
+      points: ['Recorded samples; no interpolation', 'Zapisane próbki; bez interpolacji'],
+    };
+    return labels[key]?.[this._lang === 'pl' ? 1 : 0] || key;
+  }
+
+  _historyMembers() {
+    const all = [...this._entityRegistry].filter(([, entry]) => entry.device_id === this._historyDevice && !entry.disabled_by);
+    const visible = all.filter(([id]) => Object.hasOwn(this._hass?.states || {}, id));
+    return { all: all.length, visible: visible.length, ids: visible.map(([id]) => id).sort().slice(0, 16) };
+  }
+
+  _historyContextKey() {
+    const hass = this._hass, user = hass?.user;
+    const members = this._historyMembers();
+    return JSON.stringify([this._historyDevice, this._historyDays, this._deviceRegistry.has(this._historyDevice), this._registryEpoch, user?.id, user?.is_admin === true,
+      user?.is_owner === true, user?.is_active, user?.group_ids || [], hass?.config?.version,
+      members.all, members.visible, members.ids.map(id => [id, this._hass.states[id]?.attributes?.device_class,
+        this._hass.states[id]?.attributes?.unit_of_measurement, this._hass.states[id]?.attributes?.source_type,
+        this._hass.states[id]?.attributes?.tracking_type])]);
+  }
+
+  _cancelDeviceHistory(state = 'not_checked', clear = false) {
+    this._historyEpoch++;
+    if (this._historyTimer !== null) clearTimeout(this._historyTimer);
+    this._historyTimer = null;
+    this._historyState = state;
+    if (clear) {
+      this._historyResult = null;
+      this._historySelected = null;
+      this._historyAttempt = null;
+      this._historyProgress = null;
+      this._historyPage = 0;
+    } else if (this._historyResult) this._historyStale = true;
+  }
+
+  _bindHistoryLifecycle() {
+    const connection = this._hass?.connection;
+    if (connection !== this._historyConnection) {
+      if (this._historyConnection?.removeEventListener) {
+        this._historyConnection.removeEventListener('ready', this._historyReadyHandler);
+        this._historyConnection.removeEventListener('disconnected', this._historyDisconnectHandler);
+      }
+      if (this._historyConnection) this._cancelDeviceHistory('not_checked', true);
+      this._historyConnectionReady = connection?.connected === true;
+      this._historyConnection = connection;
+      if (this.isConnected && connection?.addEventListener) {
+        connection.addEventListener('ready', this._historyReadyHandler);
+        connection.addEventListener('disconnected', this._historyDisconnectHandler);
+      }
+    }
+    if (this.isConnected && !this._historyBrowserBound) {
+      window.addEventListener('online', this._historyOnlineHandler);
+      window.addEventListener('offline', this._historyOfflineHandler);
+      this._historyBrowserBound = true;
+    }
+  }
+
+  _syncHistoryContext() {
+    this._bindHistoryLifecycle();
+    const user = this._hass?.user;
+    const identity = JSON.stringify([user?.id, user?.is_admin === true, user?.is_owner === true, user?.is_active, user?.group_ids || []]);
+    const key = this._historyContextKey();
+    if (this._historyIdentity !== undefined && this._historyIdentity !== identity) this._cancelDeviceHistory('not_checked', true);
+    else if (this._historyContext !== undefined && key !== this._historyContext) this._cancelDeviceHistory('not_checked', true);
+    if (this._historyConnected !== undefined && this._historyConnected !== (this._hass?.connection?.connected === true)) this._cancelDeviceHistory(this._hass?.connection?.connected === true ? 'not_checked' : 'offline');
+    this._historyIdentity = identity;
+    this._historyContext = key;
+    this._historyConnected = this._hass?.connection?.connected === true;
+    if (!this._historyConnected) this._historyConnectionReady = false;
+  }
+
+  _historySupportState() {
+    const hass = this._hass;
+    if (!hass?.user?.id || hass.user.is_active === false) return 'denied';
+    if (!this.isConnected || !this._historyBrowserOnline || navigator.onLine === false || hass.connection?.connected !== true || this._historyConnectionReady !== true) return 'offline';
+    if (typeof hass.callWS !== 'function' || this._registryStatus !== 'ready') return 'unsupported';
+    if (Array.isArray(hass.config?.components) && !hass.config.components.includes('history')) return 'unsupported';
+    const match = /^(\d{4})\.(\d{1,2})\.(\d+)/.exec(hass.config?.version || '');
+    if (!match) return 'unsupported';
+    const version = Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3]);
+    if (version < 20240100 || (hass.user.is_admin !== true && version < 20261001)) return 'unsupported';
+    if (!this._deviceRegistry.has(this._historyDevice)) return 'not_checked';
+    return null;
+  }
+
+  // Core history/history_during_period result, NOT REST/full-state objects.
+  _historyProject(raw, { start, end, entityIds }) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_history_shape');
+    const rows = [], seen = new Set(), missing = [];
+    let invalid = 0, inspected = 0, capped = false;
+    const add = (entityId, time, kind, state, value = null, unit = '') => {
+      const id = JSON.stringify([entityId, time, kind, state, unit]);
+      if (seen.has(id)) return;
+      seen.add(id);
+      if (rows.length >= 2400) { capped = true; return; }
+      rows.push({id,entityId,time,utc:new Date(time).toISOString(),kind,state,value,unit});
+    };
+    for (const entityId of entityIds) {
+      if (!Object.hasOwn(raw, entityId) || !raw[entityId]?.length) {
+        if (Object.hasOwn(raw, entityId) && !Array.isArray(raw[entityId])) throw new Error('invalid_history_shape');
+        missing.push(entityId); continue;
+      }
+      const states = raw[entityId];
+      if (!Array.isArray(states)) throw new Error('invalid_history_shape');
+      // Do not sort an unbounded response. The endpoint has no server row cap.
+      if (states.length > 12000 || inspected + states.length > 12000) { capped = true; break; }
+      inspected += states.length;
+      let previousAvailability = null;
+      for (const record of [...states].sort((a, b) => (a?.lu || 0) - (b?.lu || 0))) {
+        if (!record || typeof record.s !== 'string' || !record.s.trim() || typeof record.lu !== 'number' ||
+            !Number.isFinite(record.lu) || !Number.isFinite(record.lu * 1000) ||
+            record.lu * 1000 < start || record.lu * 1000 >= end || Math.abs(record.lu * 1000) > 8640000000000000) { invalid++; continue; }
+        const time = Math.round(record.lu * 1000), attrs = record.a;
+        const availability = record.s === 'unavailable' ? 'reported_unavailable' : record.s === 'unknown' ? 'reported_unknown' : 'reported_available';
+        if (availability !== previousAvailability) add(entityId,time,availability,record.s);
+        previousAvailability = availability;
+        if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) { invalid++; continue; }
+        const namedBattery = (entityId.includes('_battery') || entityId.includes('battery_level')) && !attrs.device_class && attrs.unit_of_measurement === '%';
+        if (attrs.device_class === 'battery' || namedBattery) {
+          const unit = attrs.unit_of_measurement;
+          const number = Number(record.s);
+          if (!/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?$/i.test(record.s.trim()) || !['%', 'V', 'mV'].includes(unit) || !Number.isFinite(number) || number < 0 || (unit === '%' && number > 100)) {
+            if (!['unknown', 'unavailable'].includes(record.s)) invalid++;
+          } else add(entityId,time,'battery',record.s,number,unit);
+        }
+        const measuredBinary = entityId.startsWith('binary_sensor.') && attrs.device_class === 'connectivity' && ['on','off'].includes(record.s);
+        const measuredTracker = entityId.startsWith('device_tracker.') && attrs.source_type !== 'gps' && attrs.tracking_type !== 'position' &&
+          (attrs.source_type === 'router' || attrs.tracking_type === 'connection') && ['home','not_home'].includes(record.s);
+        if (measuredBinary || measuredTracker) add(entityId,time,'connection',record.s);
+      }
+    }
+    rows.sort((a,b)=>a.time-b.time||a.entityId.localeCompare(b.entityId)||a.kind.localeCompare(b.kind));
+    return {rows,start,end,entityIds:[...entityIds],missing,invalid,inspected,capped,coverage:'unknown',retention:'unknown',
+      first:rows[0]?.utc || null,last:rows.at(-1)?.utc || null};
+  }
+
+  _loadDeviceHistory() {
+    // The wire slot survives cancellation/deadline until the real call settles.
+    if (this._historyWire) return this._historyWire;
+    this._syncHistoryContext();
+    const unsupported = this._historySupportState();
+    if (unsupported) { this._historyState = unsupported; this._render(); return Promise.resolve(); }
+    const members = this._historyMembers();
+    if (!members.ids.length) { this._historyState = 'no_data'; this._historyResult = null; this._render(); return Promise.resolve(); }
+    const hass = this._hass, connection = hass.connection, key = this._historyContextKey();
+    const epoch = ++this._historyEpoch;
+    const days = this._historyDays === 30 ? 30 : 7;
+    const end = Date.now(), start = end - days * 86400000;
+    const scope = {start,end,entityIds:members.ids};
+    this._historyAttempt = {...scope,visible:members.visible,all:members.all};
+    this._historyState = 'loading'; this._historyStale = Boolean(this._historyResult); this._historyProgress = null;
+    const current = () => this.isConnected && this._hass?.connection === connection && connection.connected === true &&
+      this._historyBrowserOnline && this._historyConnectionReady === true && navigator.onLine !== false && epoch === this._historyEpoch && key === this._historyContextKey();
+    this._historyTimer = setTimeout(() => {
+      if (current()) {
+        if (this._historyProgress?.rows.length) this._historyResult = {...this._historyProgress,capped:true,readFailure:'timeout'};
+        this._cancelDeviceHistory('timeout'); this._render();
+      }
+    }, this._historyDeadlineMs);
+    const pending = Promise.resolve().then(async () => {
+      const merged = Object.fromEntries(members.ids.map(id => [id, []]));
+      let count = 0, queries = 0, rejected = 0, result;
+      for (let cursor = start; cursor < end; cursor += 86400000) {
+        if (!current()) return;
+        const response = await hass.callWS({type:'history/history_during_period',start_time:new Date(cursor-1).toISOString(),
+          end_time:new Date(Math.min(end,cursor+86400000)).toISOString(),entity_ids:members.ids,
+          include_start_time_state:false,significant_changes_only:false,minimal_response:false,no_attributes:false});
+        if (!current()) return;
+        if (!response || typeof response !== 'object' || Array.isArray(response)) throw new Error('invalid_history_shape');
+        queries++;
+        let scanCap = false;
+        for (const id of members.ids) {
+          if (!Object.hasOwn(response,id)) continue;
+          if (!Array.isArray(response[id])) throw new Error('invalid_history_shape');
+          if (response[id].length + count > 12000) { scanCap = true; break; }
+          count += response[id].length;
+          // Filter per-day boundaries before merging; no future/out-of-slice records.
+          const accepted=response[id].filter(record => typeof record?.lu !== 'number' ||
+            (record.lu * 1000 >= cursor && record.lu * 1000 < Math.min(end,cursor+86400000)));
+          rejected += response[id].length-accepted.length;
+          merged[id].push(...accepted);
+        }
+        result = this._historyProject(merged,scope);
+        result.invalid += rejected;
+        result.queries=queries; result.visible=members.visible; result.all=members.all;
+        result.completedUntil=Math.min(end,cursor+86400000);
+        if (scanCap) result.capped = true;
+        this._historyProgress = result;
+        if (result.capped || result.rows.length >= 2400) { result.capped = true; break; }
+      }
+      if (!current()) return;
+      result ||= this._historyProject(merged,scope);
+      result.capped ||= members.visible > members.ids.length;
+      result.queries = queries; result.visible = members.visible; result.all = members.all; result.omitted = members.all-members.ids.length;
+      this._historyResult = result; this._historySelected = null; this._historyPage = 0; this._historyStale = false;
+      this._historyState = result.capped || result.invalid || result.omitted || (result.rows.length && result.missing.length) ? 'partial' : result.rows.length ? 'loaded' : 'no_data';
+    }).catch(error => {
+      if (!current()) return;
+      this._historyState = ['unauthorized','unauthorized_entity','forbidden'].includes(error?.code) ? 'denied'
+        : error?.code === 'unknown_command' ? 'unsupported' : 'error';
+      if (this._historyState === 'denied') this._historyResult = null;
+      else if (this._historyProgress?.rows.length) this._historyResult={...this._historyProgress,capped:true,readFailure:this._historyState};
+      this._historyStale = Boolean(this._historyResult);
+      // No raw server error, message, stack or response enters the UI/logs.
+    }).finally(() => {
+      if (this._historyWire !== pending) return;
+      this._historyWire = null;
+      if (this._historyTimer !== null) clearTimeout(this._historyTimer);
+      this._historyTimer = null;
+      if (this.isConnected) this._render();
+    });
+    this._historyWire = pending;
+    this._render();
+    return pending;
+  }
+
+  _historyZone() {
+    const zone = this._hass?.config?.time_zone || 'UTC';
+    try { new Intl.DateTimeFormat('en',{timeZone:zone}); return zone; } catch (_) { return 'UTC'; }
+  }
+
+  _historyDate(time) {
+    return new Intl.DateTimeFormat(this._lang === 'pl' ? 'pl-PL' : 'en-GB',
+      {timeZone:this._historyZone(),year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(time);
+  }
+
+  _historyRowText(row) {
+    return `${this._historyDate(row.time)} · ${row.entityId} · ${this._ht(row.kind)} · ${row.value === null ? row.state : row.value}${row.unit ? ' '+row.unit : ''}`;
+  }
+
+  _renderDeviceHistory() {
+    const ui = createUiV3({language:this._lang});
+    const result = this._historyResult, scope = result || this._historyAttempt;
+    const code = this._historyState === 'loaded' ? 'success' : this._historyState === 'partial' ? 'partial'
+      : this._historyState === 'no_data' ? 'no_data' : ['denied','error','timeout'].includes(this._historyState) ? 'error' : 'not_checked';
+    const devices = [...this._deviceRegistry.values()];
+    const pageCount = Math.max(1,Math.ceil((result?.rows.length || 0)/50));
+    this._historyPage = Math.min(this._historyPage,pageCount-1);
+    // Both views use identical page/order; group batteries by source/unit, then events.
+    const rows = (result?.rows.slice(this._historyPage*50,(this._historyPage+1)*50) || []).sort((a,b) => {
+      if ((a.kind==='battery') !== (b.kind==='battery')) return a.kind==='battery' ? -1 : 1;
+      if (a.kind==='battery') return a.entityId.localeCompare(b.entityId) || a.unit.localeCompare(b.unit) || a.time-b.time;
+      return a.time-b.time || a.entityId.localeCompare(b.entityId) || a.kind.localeCompare(b.kind);
+    });
+    const selected = result?.rows.find(row=>row.id===this._historySelected);
+    const selectedIndex = rows.findIndex(row=>row.id===this._historySelected);
+    let visualization = '';
+    if (rows.length && this._historyView === 'chart') {
+      const batteryGroups = new Map();
+      for (const row of rows.filter(row=>row.kind==='battery')) {
+        const key = JSON.stringify([row.entityId,row.unit]);
+        if (!batteryGroups.has(key)) batteryGroups.set(key,[]);
+        batteryGroups.get(key).push(row);
+      }
+      const x = time => 10 + 80 * (time-result.start)/(result.end-result.start);
+      const mark = (row,left,top) => `<button type="button" class="history-mark ${row.kind==='battery' ? 'history-battery-mark' : 'history-event-mark'}" style="left:${left}%;top:${top}%" data-history-row="${_esc(row.id)}" aria-label="${_esc(this._historyRowText(row))}" aria-pressed="${row.id===this._historySelected}"><span aria-hidden="true">${row.kind==='battery' ? '●' : row.kind==='reported_available' ? '◇' : row.kind==='connection' ? '◆' : '!'}</span></button>`;
+      for (const group of batteryGroups.values()) {
+        const unit=group[0].unit, values=group.map(row=>row.value);
+        let min=unit==='%' ? 0 : Math.min(...values), max=unit==='%' ? 100 : Math.max(...values);
+        if (min===max) { min=Math.max(0,min-0.5);max+=0.5; }
+        const y=value=>max>min && Number.isFinite(max-min) ? 15+70*(1-(value-min)/(max-min)) : 50;
+        visualization += `<figure class="history-figure"><figcaption>${_esc(group[0].entityId)} · ${_esc(unit)} <small>${this._ht('points')}</small></figcaption>
+          <div class="history-plot"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M10 15H90 M10 50H90 M10 85H90" stroke="var(--divider-color,#aaa)" fill="none" vector-effect="non-scaling-stroke"/></svg>
+          <span class="history-axis history-axis-top">${_esc(max.toFixed(2).replace(/\.00$/,''))} ${_esc(unit)}</span><span class="history-axis history-axis-bottom">${_esc(min.toFixed(2).replace(/\.00$/,''))} ${_esc(unit)}</span>
+          ${group.map(row=>mark(row,x(row.time),y(row.value))).join('')}</div>
+          <div class="history-dates"><span>${_esc(this._historyDate(result.start))}</span><span>${_esc(this._historyDate(result.end))}</span></div></figure>`;
+      }
+      const events=rows.filter(row=>row.kind!=='battery');
+      if (events.length) visualization+=`<figure class="history-figure"><figcaption>${this._ht('events')}</figcaption><p>${this._ht('eventNote')}</p><div class="history-plot history-events">${events.map((row,i)=>mark(row,x(row.time),18+(i%4)*20)).join('')}</div><div class="history-dates"><span>${_esc(this._historyDate(result.start))}</span><span>${_esc(this._historyDate(result.end))}</span></div></figure>`;
+    } else if (rows.length) {
+      visualization=`<ol class="history-data">${rows.map(row=>`<li><button type="button" data-history-row="${_esc(row.id)}" aria-pressed="${row.id===this._historySelected}"><time datetime="${_esc(row.utc)}">${_esc(this._historyDate(row.time))}</time><strong>${_esc(this._ht(row.kind))}</strong><span>${_esc(row.entityId)}</span><span>${_esc(row.value===null ? row.state : row.value)} ${_esc(row.unit)}</span></button></li>`).join('')}</ol>`;
+    }
+    return `<section class="device-history" aria-label="${this._ht('title')}">
+      <h3>${this._ht('title')}</h3><p>${this._ht('caveat')}</p>
+      <div class="history-controls"><label>${this._ht('device')}<select class="history-device"><option value="">—</option>${devices.map(device=>`<option value="${_esc(device.id)}" ${device.id===this._historyDevice?'selected':''}>${_esc(device.name_by_user||device.name||this._t('genericDevice'))}</option>`).join('')}</select></label>
+      <label>${this._ht('range')}<select class="history-range">${[7,30].map(days=>`<option value="${days}" ${this._historyDays===days?'selected':''}>${days} ${this._ht('days')}</option>`).join('')}</select></label>
+      <button type="button" class="history-load" ${this._historyWire?'disabled':''}>${this._ht('load')}</button></div>
+      <p class="history-status" role="status">${ui.statusHtml(code)} ${_esc(this._ht(this._historyState==='idle'?'idle':this._historyState))} ${this._historyStale?`<strong>${this._ht('stale')}</strong>`:''}</p>
+      ${scope?`<details class="history-provenance"><summary>${this._ht('source')}: HA Recorder</summary><dl>
+        <dt>${this._ht('source')}</dt><dd>history/history_during_period · include_start_time_state=false</dd>
+        <dt>${this._ht('range')}</dt><dd>${_esc(new Date(scope.start).toISOString())} → ${_esc(new Date(scope.end).toISOString())}</dd>
+        <dt>${this._ht('queriedUntil')}</dt><dd>${_esc(result?.completedUntil ? new Date(result.completedUntil).toISOString() : '—')}</dd><dt>${this._ht('queries')}</dt><dd>${result?.queries||0}</dd>
+        <dt>${this._ht('zone')}</dt><dd>${_esc(this._historyZone())}</dd>
+        <dt>${this._ht('first')}</dt><dd>${_esc(result?.first||'—')}</dd><dt>${this._ht('last')}</dt><dd>${_esc(result?.last||'—')}</dd>
+        <dt>${this._ht('samples')}</dt><dd>${result?.rows.length||0}</dd><dt>${this._ht('inspected')}</dt><dd>${result?.inspected||0}</dd>
+        <dt>${this._ht('subset')}</dt><dd>${scope.entityIds.length} / ${scope.visible ?? scope.entityIds.length}</dd><dt>${this._ht('enabled')}</dt><dd>${scope.all ?? scope.entityIds.length}</dd><dt>${this._ht('omitted')}</dt><dd>${result?.omitted ?? (scope.all ?? scope.entityIds.length)-scope.entityIds.length}</dd>
+        <dt>${this._ht('limits')}</dt><dd>16 ${this._ht('entities')} · 2400 ${this._ht('samples')} · 12000 ${this._ht('inspected')} · 30 × 24 h · 15 s</dd>
+        <dt>${this._ht('invalid')}</dt><dd>${result?.invalid||0}</dd><dt>${this._ht('missing')}</dt><dd>${result?.missing.length||0}</dd>
+        <dt>${this._ht('entities')}</dt><dd>${scope.entityIds.map(id=>_esc(id)).join('<br>')}</dd></dl></details>`:''}
+      ${result?.capped?`<p class="history-cap" role="status">${this._ht('cap')}</p>`:''}
+      ${result?.rows.length?`<div class="history-controls history-view" role="group" aria-label="${this._ht('chart')} / ${this._ht('data')}"><button type="button" data-history-view="chart" aria-pressed="${this._historyView==='chart'}">${this._ht('chart')}</button><button type="button" data-history-view="data" aria-pressed="${this._historyView==='data'}">${this._ht('data')}</button></div>
+      <div class="history-inspector" role="status">${selected?`<strong>${this._ht('details')}</strong><p>${_esc(this._historyRowText(selected))}</p><time datetime="${_esc(selected.utc)}">${_esc(selected.utc)}</time>`:this._ht('select')}</div>
+      <div class="history-controls history-step"><button type="button" class="history-record-prev" ${selectedIndex<=0?'disabled':''}>${this._ht('recordPrevious')}</button><button type="button" class="history-record-next" ${selectedIndex>=rows.length-1?'disabled':''}>${this._ht('recordNext')}</button></div>
+      ${visualization}<div class="history-controls history-pages"><button type="button" class="history-prev" ${this._historyPage===0?'disabled':''}>${this._ht('previous')}</button><span>${this._ht('page')} ${this._historyPage+1} / ${pageCount}</span><button type="button" class="history-next" ${this._historyPage===pageCount-1?'disabled':''}>${this._ht('next')}</button></div>`:''}
+      </section>`;
+  }
+
+  _attachHistoryEvents() {
+    const root=this.shadowRoot;
+    root.querySelector('.history-load')?.addEventListener('click',()=>this._loadDeviceHistory());
+    root.querySelector('.history-device')?.addEventListener('change',event=>{
+      this._historyDevice=event.target.value; this._cancelDeviceHistory('not_checked',true);this._syncHistoryContext();this._render();
+    });
+    root.querySelector('.history-range')?.addEventListener('change',event=>{
+      this._historyDays=event.target.value==='30'?30:7;this._cancelDeviceHistory('not_checked',true);this._syncHistoryContext();this._render();
+    });
+    root.querySelectorAll('[data-history-view]').forEach(button=>button.addEventListener('click',()=>{
+      this._historyView=button.dataset.historyView;this._render();
+    }));
+    root.querySelectorAll('[data-history-row]').forEach(button=>button.addEventListener('click',()=>{
+      this._historySelected=button.dataset.historyRow;this._render();
+    }));
+    const step = direction => {
+      const marks=[...root.querySelectorAll('[data-history-row]')];
+      const current=marks.findIndex(mark=>mark.dataset.historyRow===this._historySelected);
+      const next=marks[Math.max(0,Math.min(marks.length-1,current+direction))];
+      if (next) this._historySelected=next.dataset.historyRow;
+      this._render();
+    };
+    root.querySelector('.history-record-prev')?.addEventListener('click',()=>step(-1));
+    root.querySelector('.history-record-next')?.addEventListener('click',()=>step(1));
+    root.querySelector('.history-prev')?.addEventListener('click',()=>{this._historyPage--;this._render();});
+    root.querySelector('.history-next')?.addEventListener('click',()=>{this._historyPage++;this._render();});
   }
 
   _getDevices() {
@@ -1717,10 +2153,15 @@ class HADeviceHealth extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
+    this._syncHistoryContext();
     this._renderedLang = this._lang;
     this._renderedIsAdmin = this._hass.user?.is_admin === true;
     const oldDialog = this.shadowRoot.querySelector('.automation-dialog');
     const activeElement = this.shadowRoot.activeElement;
+    const historyFocus = activeElement?.closest('.device-history') ? {
+      row: activeElement.dataset.historyRow, view: activeElement.dataset.historyView,
+      className: [...activeElement.classList].find(name=>name.startsWith('history-'))
+    } : null;
     const dialogFocusClass = oldDialog?.contains(activeElement)
       ? ['automation-yaml-preview', 'automation-dialog-cancel', 'automation-dialog-create']
         .find(className => activeElement.classList.contains(className)) : null;
@@ -2527,6 +2968,8 @@ class HADeviceHealth extends HTMLElement {
       html += `<div class="registry-notice" role="status" style="margin:12px;padding:12px;border:1px solid var(--bento-border);border-radius:8px;">${this._t(messageKey)}${this._hass?.callWS && this._registryStatus !== 'loading' ? ` <button type="button" class="registry-retry">${this._t('retryRegistry')}</button>` : ''}</div>`;
     }
 
+    if (this._activeTab === 'devices') html += `<p class="history-snapshot-note">${this._ht('snapshot')}</p>`;
+
     // Devices Tab
     if (this._activeTab === "devices") {
       const filteredDevices = devices.filter(
@@ -2607,6 +3050,8 @@ class HADeviceHealth extends HTMLElement {
         </div>
       `;
     }
+
+    if (this._activeTab === 'devices') html += this._renderDeviceHistory();
 
     // Batteries Tab
     if (this._activeTab === "batteries") {
@@ -2821,7 +3266,7 @@ class HADeviceHealth extends HTMLElement {
       }
 
       html += `
-        <div class="section-title">${this._t('alertHistory')}</div>
+        <div class="section-title">${this._t('alertHistory')}</div><p class="history-snapshot-note">${this._ht('session')}</p>
         ${this._alertHistory
           .slice(0, 20)
           .map(
@@ -2841,7 +3286,47 @@ class HADeviceHealth extends HTMLElement {
 
     // Mark DOM as built after content is set
     const restoreScroll = !this._domBuilt;
-    this.shadowRoot.innerHTML = `<style>${HA_DEVICE_HEALTH_BENTO_CSS}
+    this.shadowRoot.innerHTML = `<style>${HA_DEVICE_HEALTH_BENTO_CSS}${createUiV3({language:this._lang}).css}
+/* Recorder history owns one bounded projection; no external renderer. */
+.device-history { margin:20px 0 0; padding:18px; border:1px solid var(--divider-color,#ddd); border-radius:var(--bento-radius-sm,12px); background:var(--card-background-color,#fff); color:var(--primary-text-color,#222); min-width:0; }
+.device-history h3 { margin:0 0 8px; font-size:18px; }
+.device-history p,.history-snapshot-note { color:var(--secondary-text-color,#555); font-size:13px; line-height:1.55; overflow-wrap:anywhere; }
+.history-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin:14px 0; }
+.history-controls label { display:flex; flex-direction:column; gap:5px; flex:1 1 140px; min-width:0; font-size:13px; }
+.history-controls button,.history-controls select,.history-data button { min-height:44px; min-width:44px; border:1px solid var(--divider-color,#aaa); border-radius:8px; background:var(--card-background-color,#fff); color:var(--primary-text-color,#222); font:inherit; padding:10px 12px; max-width:100%; }
+.history-controls select { width:100%; }
+.device-history button { cursor:pointer; }
+.device-history button:disabled { cursor:default; opacity:.6; }
+.device-history button[aria-pressed="true"] { border-color:var(--primary-color,#4f46e5); background:var(--bento-primary-light,rgba(79,70,229,.08)); }
+.device-history :focus-visible { outline:3px solid var(--primary-color,#4f46e5); outline-offset:3px; }
+.history-status { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.history-provenance { font-size:13px; overflow-wrap:anywhere; }
+.history-provenance summary { cursor:pointer; padding:12px 0; min-height:44px; box-sizing:border-box; }
+.history-provenance dl { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,2fr); gap:8px 16px; }
+.history-provenance dt { color:var(--secondary-text-color,#555); }
+.history-provenance dd { margin:0; }
+.history-inspector { border:1px solid var(--divider-color,#ddd); border-radius:8px; padding:12px; min-height:44px; font-size:13px; overflow-wrap:anywhere; }
+.history-inspector p { margin:8px 0; }
+.history-inspector time { font-variant-numeric:tabular-nums; }
+.history-figure { margin:18px 0; border-top:1px solid var(--divider-color,#ddd); padding-top:12px; min-width:0; }
+.history-figure figcaption { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.history-figure small { display:block; font-weight:400; color:var(--secondary-text-color,#555); margin-top:5px; }
+.history-plot { position:relative; height:220px; margin:12px 22px 8px; }
+.history-plot svg { width:100%; height:100%; }
+.history-axis { position:absolute; left:0; font-size:11px; pointer-events:none; color:var(--secondary-text-color,#555); }
+.history-axis-top { top:0; }.history-axis-bottom { bottom:0; }
+.history-mark { position:absolute; transform:translate(-50%,-50%); width:44px; height:44px; min-width:44px; min-height:44px; padding:0; border:1px solid transparent; border-radius:50%; background:transparent; color:var(--primary-color,#4f46e5); font-size:18px; }
+.history-mark:focus-visible,.history-mark[aria-pressed="true"] { z-index:2; }
+.history-event-mark { color:var(--primary-text-color,#222); font-weight:700; }
+.history-events { height:170px; background:repeating-linear-gradient(to bottom,transparent 0,transparent 39px,var(--divider-color,#ddd) 40px,transparent 41px); }
+.history-dates { display:flex; justify-content:space-between; gap:16px; font-size:11px; font-variant-numeric:tabular-nums; color:var(--secondary-text-color,#555); }
+.history-dates span { max-width:48%; overflow-wrap:anywhere; }
+.history-data { list-style:none; padding:0; margin:12px 0; display:grid; gap:6px; }
+.history-data button { display:grid; grid-template-columns:1fr 1fr; gap:6px; text-align:start; width:100%; font-size:13px; overflow-wrap:anywhere; }
+.history-data time { font-variant-numeric:tabular-nums; }
+.history-pages { justify-content:space-between; align-items:center; }
+@media (max-width:500px) { .device-history { padding:12px; }.history-controls label { flex-basis:100%; }.history-provenance dl,.history-data button { grid-template-columns:1fr; }.history-provenance dt { margin-top:6px; }.history-plot { margin-inline:18px; } }
+
 /* === HA Tools split — premium banners (donate / intro / prereq) === */
 
 /* Donation footer — diamond top */
@@ -2933,6 +3418,7 @@ ${style}
     _bindLocalIntroDismiss(this.shadowRoot);
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
+    this._attachHistoryEvents();
     this._drawSignalChart();
     const dialog = this.shadowRoot.querySelector('.automation-dialog');
     for (const child of this.shadowRoot.children) {
@@ -2946,6 +3432,15 @@ ${style}
       if (dialogSelection && target.matches('.automation-yaml-preview')) target.setSelectionRange(...dialogSelection);
     } else if (oldDialog) {
       this.shadowRoot.querySelector('.background-alerts-generate')?.focus({ preventScroll: true });
+    } else if (historyFocus) {
+      const target = historyFocus.row ? [...this.shadowRoot.querySelectorAll('[data-history-row]')].find(node=>node.dataset.historyRow===historyFocus.row)
+        : historyFocus.view ? [...this.shadowRoot.querySelectorAll('[data-history-view]')].find(node=>node.dataset.historyView===historyFocus.view)
+        : historyFocus.className ? this.shadowRoot.querySelector('.'+historyFocus.className) : null;
+      if (target && !target.disabled) target.focus({preventScroll:true});
+      else {
+        const status=this.shadowRoot.querySelector('.history-status');
+        status?.setAttribute('tabindex','-1');status?.focus({preventScroll:true});
+      }
     } else if (activeElement?.matches('.device-sort-name')) {
       this.shadowRoot.querySelector('.device-sort-name')?.focus({ preventScroll: true });
     } else if (focusedSearch) {
@@ -3289,6 +3784,7 @@ ${style}
   }
 
   connectedCallback() {
+    this._bindHistoryLifecycle();
     if (this._hass) {
       this._loadRegistries();
       this._subscribeRegistryUpdates();
@@ -3297,6 +3793,15 @@ ${style}
   }
 
   disconnectedCallback() {
+    this._cancelDeviceHistory('not_checked',true);
+    if (this._historyConnection?.removeEventListener) {
+      this._historyConnection.removeEventListener('ready',this._historyReadyHandler);
+      this._historyConnection.removeEventListener('disconnected',this._historyDisconnectHandler);
+    }
+    this._historyConnection = null;
+    window.removeEventListener('online',this._historyOnlineHandler);
+    window.removeEventListener('offline',this._historyOfflineHandler);
+    this._historyBrowserBound = false;
     if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
     this._backgroundAlertDialog = null;
     this._backgroundAlertResult = null;
