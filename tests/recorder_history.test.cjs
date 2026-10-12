@@ -141,7 +141,7 @@ test('Chart and Data render equal projection IDs, selection detail, PL/EN and 44
   const dataIds=[...card.shadowRoot.querySelectorAll('[data-history-row]')].map(n=>n.dataset.historyRow);
   assert.deepEqual(dataIds,chartIds);card.shadowRoot.querySelector('[data-history-row]').click();
   assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/2026-10-05/);
-  card._lang='pl';card._render();assert.match(card.shadowRoot.querySelector('.device-history').textContent,/Historia|historii/);
+  card._lang='pl';card._render();assert.match(card.shadowRoot.querySelector('.device-history').textContent,/Historia|historia|historii/);
   assert.match(card.shadowRoot.querySelector('style').textContent,/\.history-controls[\s\S]*min-height:\s*44px/);
  }finally{dom.window.close();}
 });
@@ -175,4 +175,30 @@ test('finite voltage extremes stay inspectable without invalid chart coordinates
   const mark=card.shadowRoot.querySelector('.history-battery-mark');assert.ok(Number.isFinite(parseFloat(mark.style.top)));mark.click();
   assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/1e\+308 V/);
  }finally{dom.window.close();}
+});
+
+test('hass assigned before mounting still binds authoritative connection events',async()=>{
+ const {dom,card,hass,calls,listeners}=setup();try{
+  card.remove();card.hass=hass;assert.equal(listeners.size,0);dom.window.document.body.append(card);
+  assert.equal(typeof listeners.get('disconnected'),'function');listeners.get('disconnected')();
+  await card._loadDeviceHistory();assert.equal(calls.length,0);assert.equal(card._historyState,'offline');
+ }finally{dom.window.close();}
+});
+test('role groups and source classification changes clear already rendered private rows immediately',()=>{
+ for(const change of ['groups','inactive','source']){
+  const {dom,card,hass}=setup();try{
+   card._historyResult=card._historyProject(fixture,context);card._historyState='loaded';card._render();
+   assert.ok(card.shadowRoot.querySelector('[data-history-row]'));
+   if(change==='groups')hass.user.group_ids=['qa-new-group'];
+   if(change==='inactive')hass.user.is_active=false;
+   if(change==='source')hass.states['sensor.qa_battery'].attributes.unit_of_measurement='V';
+   card.hass=hass;assert.equal(card._historyResult,null,change);
+   assert.equal(card.shadowRoot.querySelectorAll('[data-history-row]').length,0,change);
+  }finally{dom.window.close();}
+ }
+});
+test('verified ACL Core 2026.5.0 supports household; malformed or pre-floor versions do not',()=>{
+ for(const [version,supported] of [['2026.5.0',true],['2026.6.0',true],['2026.10.0',true],['2026.4.0',false],['2026.5.0b1',false],['2026.5.0garbage',false],['2026.50.0',false],['2026.5.0.9',false]]){
+  const {dom,card}=setup({role:false,version});try{assert.equal(card._historySupportState(),supported?null:'unsupported',version);}finally{dom.window.close();}
+ }
 });
