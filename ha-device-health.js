@@ -612,6 +612,8 @@ class HADeviceHealth extends HTMLElement {
     this._historyAttempt = null;
     this._historySelected = null;
     this._historyPage = 0;
+    this._historyEpisodePage = 0;
+    this._historyEpisodesOpen = false;
     this._historyStale = false;
     this._historyEpoch = 0;
     this._historyWire = null;
@@ -1125,6 +1127,16 @@ class HADeviceHealth extends HTMLElement {
       session: ['Existing alert history below contains observations from this browser session.', 'Dotychczasowa historia alertów poniżej zawiera obserwacje z tej sesji przeglądarki.'],
       inspected: ['Inspected records', 'Sprawdzone rekordy'], subset: ['Visible member entities queried', 'Odpytywane widoczne encje urządzenia'],
       points: ['Recorded samples; no interpolation', 'Zapisane próbki; bez interpolacji'],
+      episodes: ['Recorded episodes', 'Zapisane epizody'],
+      entity_availability: ['Entity unknown / unavailable', 'Encja unknown / unavailable'],
+      measured_connection: ['Measured connection off', 'Zmierzony brak połączenia'],
+      recorded_transition: ['Start: recorded transition', 'Początek: zapisana zmiana stanu'],
+      first_observation: ['First negative observation; actual onset unknown', 'Pierwsza negatywna obserwacja; rzeczywisty początek nieznany'],
+      recovery_recorded: ['Recovery recorded', 'Powrót zapisany'],
+      recovery_unconfirmed: ['Recovery unconfirmed', 'Powrót niepotwierdzony'],
+      observedSpan: ['Observed span; not physical downtime', 'Zaobserwowany odstęp; nie czas awarii urządzenia'],
+      episodeNote: ['One episode per recorded negative sequence. Missing recovery is unconfirmed; empty history does not prove there were no incidents.', 'Jeden epizod na zapisany ciąg negatywnych stanów. Brak powrotu jest niepotwierdzony; pusta historia nie dowodzi braku incydentów.'],
+
     };
     return labels[key]?.[this._lang === 'pl' ? 1 : 0] || key;
   }
@@ -1157,6 +1169,8 @@ class HADeviceHealth extends HTMLElement {
       this._historyAttempt = null;
       this._historyProgress = null;
       this._historyPage = 0;
+      this._historyEpisodePage = 0;
+      this._historyEpisodesOpen = false;
     } else if (this._historyResult) this._historyStale = true;
   }
 
@@ -1261,8 +1275,45 @@ class HADeviceHealth extends HTMLElement {
       }
     }
     rows.sort((a,b)=>a.time-b.time||a.entityId.localeCompare(b.entityId)||a.kind.localeCompare(b.kind));
-    return {rows,start,end,entityIds:[...entityIds],missing,invalid,inspected,capped,coverage:'unknown',retention:'unknown',
+    return {rows,episodes:this._historyEpisodes(rows),start,end,entityIds:[...entityIds],missing,invalid,inspected,capped,coverage:'unknown',retention:'unknown',
       first:rows[0]?.utc || null,last:rows.at(-1)?.utc || null};
+  }
+
+  _historyEpisodes(rows) {
+    const episodes = [], lanes = new Map();
+    for (const row of rows) {
+      const kind = row.kind === 'connection' ? 'measured_connection'
+        : ['reported_available', 'reported_unknown', 'reported_unavailable'].includes(row.kind) ? 'entity_availability' : null;
+      if (!kind) continue;
+      const key = JSON.stringify([row.entityId, kind]);
+      if (!lanes.has(key)) lanes.set(key, { previous: null, active: null });
+      const lane = lanes.get(key);
+      const negative = kind === 'measured_connection' ? ['off', 'not_home'].includes(row.state) : row.kind !== 'reported_available';
+      if (negative && !lane.active) {
+        const episode = { id: JSON.stringify([row.entityId, kind, row.utc]), entityId: row.entityId, kind,
+          start: row.utc, startTime: row.time, startEvidence: lane.previous === false ? 'recorded_transition' : 'first_observation',
+          end: null, endTime: null, observedSeconds: null, status: 'recovery_unconfirmed' };
+        episodes.push(episode); lane.active = episode;
+      } else if (!negative && lane.active) {
+        lane.active.end = row.utc; lane.active.endTime = row.time;
+        lane.active.observedSeconds = (row.time - lane.active.startTime) / 1000;
+        lane.active.status = 'recovery_recorded'; lane.active = null;
+      }
+      lane.previous = negative;
+    }
+    return episodes.sort((a,b)=>a.startTime-b.startTime || a.entityId.localeCompare(b.entityId) || a.kind.localeCompare(b.kind));
+  }
+
+  _renderHistoryEpisodes(result) {
+    if (!result) return '';
+    const episodes = result.episodes || [], pages = Math.max(1, Math.ceil(episodes.length / 50));
+    this._historyEpisodePage = Math.max(0, Math.min(this._historyEpisodePage, pages - 1));
+    const visible = episodes.slice(this._historyEpisodePage * 50, (this._historyEpisodePage + 1) * 50);
+    return `<details class="history-episodes" ${this._historyEpisodesOpen ? 'open' : ''}><summary>${this._ht('episodes')}: ${episodes.length}</summary>
+      <p>${this._ht('episodeNote')}</p><ol>${visible.map(episode=>`<li><strong>${_esc(this._ht(episode.kind))}</strong><span>${_esc(episode.entityId)}</span>
+      <span>${_esc(this._ht(episode.startEvidence))}</span><time datetime="${_esc(episode.start)}">${_esc(this._historyDate(episode.startTime))} · ${_esc(episode.start)}</time>
+      <strong>${_esc(this._ht(episode.status))}</strong>${episode.end ? `<time datetime="${_esc(episode.end)}">${_esc(this._historyDate(episode.endTime))} · ${_esc(episode.end)}</time><span>${this._ht('observedSpan')}: ${_esc(episode.observedSeconds)} s</span>` : ''}</li>`).join('')}</ol>
+      ${pages > 1 ? `<div class="history-controls"><button type="button" class="history-episode-prev" ${this._historyEpisodePage === 0 ? 'disabled' : ''}>${this._ht('previous')}</button><span>${this._ht('page')} ${this._historyEpisodePage+1} / ${pages}</span><button type="button" class="history-episode-next" ${this._historyEpisodePage === pages-1 ? 'disabled' : ''}>${this._ht('next')}</button></div>` : ''}</details>`;
   }
 
   _loadDeviceHistory() {
@@ -1323,7 +1374,7 @@ class HADeviceHealth extends HTMLElement {
       result ||= this._historyProject(merged,scope);
       result.capped ||= members.visible > members.ids.length;
       result.queries = queries; result.visible = members.visible; result.all = members.all; result.omitted = members.all-members.ids.length;
-      this._historyResult = result; this._historySelected = null; this._historyPage = 0; this._historyStale = false;
+      this._historyResult = result; this._historySelected = null; this._historyPage = 0; this._historyEpisodePage = 0; this._historyStale = false;
       this._historyState = result.capped || result.invalid || result.omitted || (result.rows.length && result.missing.length) ? 'partial' : result.rows.length ? 'loaded' : 'no_data';
     }).catch(error => {
       if (!current()) return;
@@ -1418,6 +1469,7 @@ class HADeviceHealth extends HTMLElement {
         <dt>${this._ht('limits')}</dt><dd>16 ${this._ht('entities')} · 2400 ${this._ht('samples')} · 12000 ${this._ht('inspected')} · 30 × 24 h · 15 s</dd>
         <dt>${this._ht('invalid')}</dt><dd>${result?.invalid||0}</dd><dt>${this._ht('missing')}</dt><dd>${result?.missing.length||0}</dd>
         <dt>${this._ht('entities')}</dt><dd>${scope.entityIds.map(id=>_esc(id)).join('<br>')}</dd></dl></details>`:''}
+      ${this._renderHistoryEpisodes(result)}
       ${result?.capped?`<p class="history-cap" role="status">${this._ht('cap')}</p>`:''}
       ${result?.rows.length?`<div class="history-controls history-view" role="group" aria-label="${this._ht('chart')} / ${this._ht('data')}"><button type="button" data-history-view="chart" aria-pressed="${this._historyView==='chart'}">${this._ht('chart')}</button><button type="button" data-history-view="data" aria-pressed="${this._historyView==='data'}">${this._ht('data')}</button></div>
       <div class="history-inspector" role="status">${selected?`<strong>${this._ht('details')}</strong><p>${_esc(this._historyRowText(selected))}</p><time datetime="${_esc(selected.utc)}">${_esc(selected.utc)}</time>`:this._ht('select')}</div>
@@ -1428,6 +1480,9 @@ class HADeviceHealth extends HTMLElement {
 
   _attachHistoryEvents() {
     const root=this.shadowRoot;
+    root.querySelector('.history-episodes')?.addEventListener('toggle',event=>{this._historyEpisodesOpen=event.target.open;});
+    root.querySelector('.history-episode-prev')?.addEventListener('click',()=>{this._historyEpisodePage--;this._render();});
+    root.querySelector('.history-episode-next')?.addEventListener('click',()=>{this._historyEpisodePage++;this._render();});
     root.querySelector('.history-load')?.addEventListener('click',()=>this._loadDeviceHistory());
     root.querySelector('.history-device')?.addEventListener('change',event=>{
       this._historyDevice=event.target.value; this._cancelDeviceHistory('not_checked',true);this._syncHistoryContext();this._render();
@@ -3307,13 +3362,17 @@ class HADeviceHealth extends HTMLElement {
 .device-history :focus-visible { outline:3px solid var(--primary-color,#4f46e5); outline-offset:3px; }
 .history-status { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .history-provenance { font-size:13px; overflow-wrap:anywhere; }
-.history-provenance summary { cursor:pointer; padding:12px 0; min-height:44px; box-sizing:border-box; }
+.history-provenance summary,.history-episodes summary { cursor:pointer; padding:12px 0; min-height:44px; box-sizing:border-box; }
 .history-provenance dl { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,2fr); gap:8px 16px; }
 .history-provenance dt { color:var(--secondary-text-color,#555); }
 .history-provenance dd { margin:0; }
 .history-inspector { border:1px solid var(--divider-color,#ddd); border-radius:8px; padding:12px; min-height:44px; font-size:13px; overflow-wrap:anywhere; }
 .history-inspector p { margin:8px 0; }
 .history-inspector time { font-variant-numeric:tabular-nums; }
+.history-episodes { margin:12px 0; font-size:13px; overflow-wrap:anywhere; }
+.history-episodes ol { list-style:none; padding:0; display:grid; gap:10px; }
+.history-episodes li { display:grid; gap:6px; padding:12px; border:1px solid var(--divider-color,#ddd); border-radius:8px; }
+.history-episodes time { font-variant-numeric:tabular-nums; }
 .history-figure { margin:18px 0; border-top:1px solid var(--divider-color,#ddd); padding-top:12px; min-width:0; }
 .history-figure figcaption { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
 .history-figure small { display:block; font-weight:400; color:var(--secondary-text-color,#555); margin-top:5px; }
