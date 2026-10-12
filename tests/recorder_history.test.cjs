@@ -219,3 +219,32 @@ test('30-day read is explicit, exactly scoped, and still does not claim retained
   assert.equal(card._historyState,'no_data');
  }finally{dom.window.close();}
 });
+
+test('recorded episodes deduplicate repeated negative readings and close only at actual recovery',()=>{
+ const {dom,card}=setup();try{
+  const p=card._historyProject({'binary_sensor.qa_link':[sample('on',1,{device_class:'connectivity'}),sample('off',2,{device_class:'connectivity'}),sample('off',3,{device_class:'connectivity'}),sample('unavailable',4,{device_class:'connectivity'}),sample('on',5,{device_class:'connectivity'})]},context);
+  const links=p.episodes.filter(x=>x.kind==='measured_connection');assert.equal(links.length,1);
+  assert.equal(links[0].start,'2026-10-05T00:00:02.000Z');assert.equal(links[0].end,'2026-10-05T00:00:05.000Z');
+  assert.equal(links[0].startEvidence,'recorded_transition');assert.equal(links[0].status,'recovery_recorded');assert.equal(links[0].observedSeconds,3);
+  assert.equal(p.episodes.filter(x=>x.kind==='entity_availability').length,1);
+ }finally{dom.window.close();}
+});
+test('first negative observation never invents an onset or recovery; quiet and empty are not incidents',()=>{
+ const {dom,card}=setup();try{
+  const p=card._historyProject({'sensor.qa_battery':[sample('unavailable',1),sample('unknown',2),sample('unavailable',3)]},context);
+  assert.equal(p.episodes.length,1);assert.equal(p.episodes[0].startEvidence,'first_observation');assert.equal(p.episodes[0].end,null);
+  assert.equal(p.episodes[0].observedSeconds,null);assert.equal(p.episodes[0].status,'recovery_unconfirmed');
+  const quiet=card._historyProject({'sensor.qa_battery':[sample('20'),sample('19',6*86400)]},context);
+  assert.equal(quiet.episodes.length,0);assert.equal(card._historyProject({},context).episodes.length,0);
+ }finally{dom.window.close();}
+});
+test('episode identity and recovery survive pure reprojection and Chart/Data toggling without extra reads',()=>{
+ const {dom,card,calls}=setup();try{
+  const p=card._historyProject(fixture,context);assert.deepEqual(plain(card._historyProject(fixture,context).episodes),plain(p.episodes));
+  card._historyResult=p;card._historyState='loaded';card._render();
+  const before=card.shadowRoot.querySelector('.history-episodes').textContent;
+  card.shadowRoot.querySelector('[data-history-view="data"]').click();
+  assert.equal(card.shadowRoot.querySelector('.history-episodes').textContent,before);assert.equal(calls.length,0);
+  assert.match(before,/Recovery recorded|Recovery unconfirmed/);
+ }finally{dom.window.close();}
+});
