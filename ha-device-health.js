@@ -1151,6 +1151,7 @@ class HADeviceHealth extends HTMLElement {
     this._historyTimer = null;
     this._historyState = state;
     if (clear) {
+      this._historyStale = false;
       this._historyResult = null;
       this._historySelected = null;
       this._historyAttempt = null;
