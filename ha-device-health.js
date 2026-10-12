@@ -618,6 +618,7 @@ class HADeviceHealth extends HTMLElement {
     this._historyTimer = null;
     this._historyDeadlineMs = 15000;
     this._historyConnection = null;
+    this._historyListenersBound = false;
     this._historyConnectionReady = false;
     this._historyBrowserBound = false;
     this._historyBrowserOnline = navigator.onLine !== false;
@@ -960,7 +961,7 @@ class HADeviceHealth extends HTMLElement {
     }
     this._registrySession = registrySession;
     this._hass = hass;
-    this._syncHistoryContext();
+    const historyContextChanged = this._syncHistoryContext();
     this._loadRegistries();
     this._subscribeRegistryUpdates();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
@@ -973,7 +974,7 @@ class HADeviceHealth extends HTMLElement {
     }
     // Locale and administrator controls can change without any sensor change.
     // Rendered scalars also detect an in-place update of HA's user object.
-    if (registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
+    if (historyContextChanged || registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
       this._render();
     }
     // Check if relevant state actually changed
@@ -1097,7 +1098,7 @@ class HADeviceHealth extends HTMLElement {
       loading: ['Reading Recorder…', 'Odczyt Recorder…'], loaded: ['Recorder read finished.', 'Odczyt Recorder zakończony.'],
       partial: ['Partial result. Limits, missing sources or invalid records are listed below.', 'Wynik częściowy. Limity, brakujące źródła lub błędne rekordy opisano poniżej.'],
       no_data: ['No recorded samples returned. Quiet period, exclusions, retention and access filtering cannot be distinguished.', 'Nie zwrócono zapisanych próbek. Nie można rozróżnić ciszy, wykluczenia, retencji i filtrowania dostępu.'],
-      unsupported: ['History is unsupported here. Requires History/Recorder and a supported Core version; household access requires Core 2026.10.1 or newer.', 'Historia nie jest tutaj obsługiwana. Wymaga History/Recorder i obsługiwanego Core; dostęp domownika wymaga Core 2026.10.1 lub nowszego.'],
+      unsupported: ['History is unsupported here. Requires History/Recorder and a supported Core version; household access requires Core 2026.5.0 or newer.', 'Historia nie jest tutaj obsługiwana. Wymaga History/Recorder i obsługiwanego Core; dostęp domownika wymaga Core 2026.5.0 lub nowszego.'],
       denied: ['History access denied.', 'Odmowa dostępu do historii.'], timeout: ['History deadline exceeded. Refresh explicitly when the pending read settles.', 'Przekroczono czas odczytu historii. Odśwież ręcznie po zakończeniu oczekującego odczytu.'],
       offline: ['Connection unavailable. Recovery requires an explicit refresh.', 'Połączenie niedostępne. Po przywróceniu odśwież ręcznie.'],
       error: ['History could not be read.', 'Nie udało się odczytać historii.'],
@@ -1165,13 +1166,15 @@ class HADeviceHealth extends HTMLElement {
         this._historyConnection.removeEventListener('ready', this._historyReadyHandler);
         this._historyConnection.removeEventListener('disconnected', this._historyDisconnectHandler);
       }
+      this._historyListenersBound = false;
       if (this._historyConnection) this._cancelDeviceHistory('not_checked', true);
       this._historyConnectionReady = connection?.connected === true;
       this._historyConnection = connection;
-      if (this.isConnected && connection?.addEventListener) {
-        connection.addEventListener('ready', this._historyReadyHandler);
-        connection.addEventListener('disconnected', this._historyDisconnectHandler);
-      }
+    }
+    if (this.isConnected && connection?.addEventListener && !this._historyListenersBound) {
+      connection.addEventListener('ready', this._historyReadyHandler);
+      connection.addEventListener('disconnected', this._historyDisconnectHandler);
+      this._historyListenersBound = true;
     }
     if (this.isConnected && !this._historyBrowserBound) {
       window.addEventListener('online', this._historyOnlineHandler);
@@ -1181,6 +1184,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _syncHistoryContext() {
+    const previousEpoch = this._historyEpoch;
     this._bindHistoryLifecycle();
     const user = this._hass?.user;
     const identity = JSON.stringify([user?.id, user?.is_admin === true, user?.is_owner === true, user?.is_active, user?.group_ids || []]);
@@ -1192,6 +1196,7 @@ class HADeviceHealth extends HTMLElement {
     this._historyContext = key;
     this._historyConnected = this._hass?.connection?.connected === true;
     if (!this._historyConnected) this._historyConnectionReady = false;
+    return previousEpoch !== this._historyEpoch;
   }
 
   _historySupportState() {
@@ -1200,10 +1205,10 @@ class HADeviceHealth extends HTMLElement {
     if (!this.isConnected || !this._historyBrowserOnline || navigator.onLine === false || hass.connection?.connected !== true || this._historyConnectionReady !== true) return 'offline';
     if (typeof hass.callWS !== 'function' || this._registryStatus !== 'ready') return 'unsupported';
     if (Array.isArray(hass.config?.components) && !hass.config.components.includes('history')) return 'unsupported';
-    const match = /^(\d{4})\.(\d{1,2})\.(\d+)/.exec(hass.config?.version || '');
-    if (!match) return 'unsupported';
+    const match = /^(\d{4})\.(\d{1,2})\.(\d+)(?:(a|b|rc)(\d+))?$/.exec(hass.config?.version || '');
+    if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return 'unsupported';
     const version = Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3]);
-    if (version < 20240100 || (hass.user.is_admin !== true && version < 20261001)) return 'unsupported';
+    if (version < 20240100 || (hass.user.is_admin !== true && (version < 20260500 || (version === 20260500 && match[4])))) return 'unsupported';
     if (!this._deviceRegistry.has(this._historyDevice)) return 'not_checked';
     return null;
   }
@@ -3799,6 +3804,7 @@ ${style}
       this._historyConnection.removeEventListener('disconnected',this._historyDisconnectHandler);
     }
     this._historyConnection = null;
+    this._historyListenersBound = false;
     window.removeEventListener('online',this._historyOnlineHandler);
     window.removeEventListener('offline',this._historyOfflineHandler);
     this._historyBrowserBound = false;
