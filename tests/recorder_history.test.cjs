@@ -202,3 +202,20 @@ test('verified ACL Core 2026.5.0 supports household; malformed or pre-floor vers
   const {dom,card}=setup({role:false,version});try{assert.equal(card._historySupportState(),supported?null:'unsupported',version);}finally{dom.window.close();}
  }
 });
+
+test('clearing a private result also clears the stale-read marker',()=>{
+ const {dom,card}=setup();try{
+  card._historyResult=card._historyProject(fixture,context);card._historyState='loaded';card._render();
+  card._cancelDeviceHistory('offline');assert.equal(card._historyStale,true);
+  card._cancelDeviceHistory('not_checked',true);card._render();assert.equal(card._historyStale,false);
+  assert.equal(card.shadowRoot.querySelector('.history-status strong'),null);
+ }finally{dom.window.close();}
+});
+test('30-day read is explicit, exactly scoped, and still does not claim retained coverage',async()=>{
+ const {dom,card,calls}=setup({call:async()=>({})});try{
+  card._historyDays=30;card._syncHistoryContext();assert.equal(calls.length,0);await card._loadDeviceHistory();
+  assert.equal(calls.length,30);assert.equal(card._historyResult.coverage,'unknown');assert.equal(card._historyResult.retention,'unknown');
+  assert.equal(card._historyResult.end-card._historyResult.start,30*86400000);
+  assert.equal(card._historyState,'no_data');
+ }finally{dom.window.close();}
+});
