@@ -1821,10 +1821,11 @@ class HADeviceHealth extends HTMLElement {
   _isBatteryLevelEntity(entityId, state) {
     if (!state || typeof state.state !== "string" || !state.state.trim()) return false;
     const attrs = state.attributes || {};
-    // Device class is independent of an entity's name. A percent-only fallback
-    // also needs a battery name, so humidity percentages remain excluded.
+    // Percent thresholds cannot be applied to battery voltage or unknown units.
+    // A name fallback is valid only when no conflicting device class is present.
     const batteryName = entityId.includes("_battery") || entityId.includes("battery_level");
-    if (attrs.device_class !== "battery" && !(batteryName && attrs.unit_of_measurement === "%")) return false;
+    if (attrs.unit_of_measurement !== "%" ||
+        (attrs.device_class !== "battery" && !(!attrs.device_class && batteryName))) return false;
     const level = Number(state.state);
     return Number.isFinite(level) && level >= 0 && level <= 100;
   }
@@ -3055,6 +3056,16 @@ class HADeviceHealth extends HTMLElement {
         border-color: rgba(239, 68, 68, 0.25);
       }
 
+      :host(:not(.bento-dark)) .ht-result-state--partial { color: #895b00; }
+      :host(:not(.bento-dark)) .automation-result-success { color: #237b3d; }
+      :host(:not(.bento-dark)) .automation-result-error,
+      :host(:not(.bento-dark)) .automation-dialog-errors { color: #c32b2b; }
+      :host(:not(.bento-dark)) .automation-dialog-warnings { color: #895b00; }
+      :host(.bento-dark) .automation-result-success { color: #81cf99; }
+      :host(.bento-dark) .automation-result-error,
+      :host(.bento-dark) .automation-dialog-errors { color: #ff9999; }
+      :host(.bento-dark) .automation-dialog-warnings { color: #efd080; }
+
       .automation-dialog-backdrop {
         position: fixed;
         inset: 0;
@@ -3117,12 +3128,14 @@ class HADeviceHealth extends HTMLElement {
 
       .automation-preview-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
         gap: 10px;
         margin-bottom: 14px;
       }
 
       .automation-preview-card {
+        min-width: 0;
+        overflow-wrap: anywhere;
         border: 1px solid var(--dc);
         border-radius: var(--radius-xs);
         padding: 12px;
