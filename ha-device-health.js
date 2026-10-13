@@ -3065,6 +3065,7 @@ class HADeviceHealth extends HTMLElement {
       :host(.bento-dark) .automation-result-error,
       :host(.bento-dark) .automation-dialog-errors { color: #ff9999; }
       :host(.bento-dark) .automation-dialog-warnings { color: #efd080; }
+      .automation-result .ht-result-state { background: transparent; }
 
       .automation-dialog-backdrop {
         position: fixed;
