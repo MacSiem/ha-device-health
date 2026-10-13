@@ -262,3 +262,28 @@ test('source dates include later valid Recorder states omitted from the event pr
   assert.equal(p.invalid,1);
  }finally{dom.window.close();}
 });
+
+test('battery episodes use configured percent threshold, keep gaps unconfirmed and ignore voltage',()=>{
+ const {dom,card,calls}=setup();try{
+  const raw={'sensor.qa_battery':[sample('80',1),sample('30',2),sample('20',3),sample('unavailable',4),sample('3',5,{device_class:'battery',unit_of_measurement:'V'}),sample('45',6),sample('0',7)]};
+  const p=card._historyProject(raw,context);const episodes=p.episodes.filter(x=>x.kind==='battery_low');
+  assert.equal(episodes.length,2);
+  assert.equal(episodes[0].start,new Date(start+2000).toISOString());assert.equal(episodes[0].end,new Date(start+6000).toISOString());
+  assert.equal(episodes[0].startEvidence,'recorded_transition');assert.equal(episodes[1].end,null);
+  card._historyResult=p;card.setConfig({show_support:false,battery_warning:0,battery_critical:0});
+  assert.equal(card._historyResult.episodes.filter(x=>x.kind==='battery_low').length,1);assert.equal(calls.length,0);
+  card._historyEpisodesOpen=true;card._render();assert.match(card.shadowRoot.querySelector('.history-episodes').textContent,/0 %/);
+  card._lang='pl';card._render();assert.match(card.shadowRoot.querySelector('.history-episodes').textContent,/Niski poziom baterii/);
+ }finally{dom.window.close();}
+});
+test('instance identity change on the same connection clears cached and pending history',async()=>{
+ for(const pending of [false,true]){
+  let release;const {dom,card,hass}=setup({call:pending?()=>new Promise(r=>release=r):undefined});try{
+   hass.config.instance_id='qa-one';card.hass=hass;card._historyDevice='qa-one';card._syncHistoryContext();
+   card._historyResult=card._historyProject(fixture,context);card._historyState='loaded';
+   const read=pending?card._loadDeviceHistory():null;await Promise.resolve();
+   hass.config.instance_id='qa-two';card.hass=hass;assert.equal(card._historyResult,null);
+   if(read){release(fixture);await read;assert.equal(card._historyResult,null);}
+  }finally{dom.window.close();}
+ }
+});
