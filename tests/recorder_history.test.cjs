@@ -279,11 +279,11 @@ test('battery episodes use configured percent threshold, keep gaps unconfirmed a
 test('instance identity change on the same connection clears cached and pending history',async()=>{
  for(const pending of [false,true]){
   let release;const {dom,card,hass}=setup({call:pending?()=>new Promise(r=>release=r):undefined});try{
-   hass.config.instance_id='qa-one';card.hass=hass;card._historyDevice='qa-one';card._syncHistoryContext();
+   hass.config.instance_id='qa-one';card.hass=hass;await card._registryLoading;card._historyDevice='qa-one';card._syncHistoryContext();
    card._historyResult=card._historyProject(fixture,context);card._historyState='loaded';
    const read=pending?card._loadDeviceHistory():null;await Promise.resolve();
    hass.config.instance_id='qa-two';card.hass=hass;assert.equal(card._historyResult,null);
-   if(read){release(fixture);await read;assert.equal(card._historyResult,null);}
+   if(read){assert.equal(typeof release,'function','the original-instance read really started');release(fixture);await read;assert.equal(card._historyResult,null);}
   }finally{dom.window.close();}
  }
 });
