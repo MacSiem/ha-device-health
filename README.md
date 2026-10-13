@@ -115,8 +115,11 @@ Switch between **Chart** and **Data** to inspect the same records. Select a poin
 or use Previous/Next to see its source, value, unit and exact timestamp. Percent
 battery levels and voltage have separate charts; zero remains a measurement.
 Reported unavailable/unknown states and measured connection changes appear as
-separate events. Incidents are grouped into observed episodes, with recovery or
-unknown endings stated explicitly. This is not a measurement of continuous uptime.
+separate events. Availability, measured disconnection and low battery readings
+are grouped into observed episodes. Battery episodes use the current warning
+threshold shown beside them (percent only), and update when that setting changes.
+Recovery or
+unknown endings are stated explicitly. This is not a measurement of continuous uptime.
 
 The source panel shows the requested range, display time zone, first/last actual
 record, missing sources and limits. Quiet intervals do not prove missing data or

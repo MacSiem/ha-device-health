@@ -1163,6 +1163,9 @@ class HADeviceHealth extends HTMLElement {
     for (const [key, fallback] of Object.entries(HADeviceHealth.getStubConfig())) {
       if (key !== 'type') this._config[key] = this._getConfigNumber(key, fallback);
     }
+    for (const result of [this._historyResult, this._historyProgress]) {
+      if (result) result.episodes = this._historyEpisodes(result.rows);
+    }
     if (this._hass) this._update();
   }
 
@@ -1272,11 +1275,11 @@ class HADeviceHealth extends HTMLElement {
   // Same session/epoch pattern as Network Map; this plugin reads native HA
   // registries rather than the integration's list_devices endpoint.
   _readSession(hass = this._hass) {
-    return { connection: hass?.connection, userId: hass?.user?.id, admin: hass?.user?.is_admin };
+    return { connection: hass?.connection, userId: hass?.user?.id, admin: hass?.user?.is_admin, instance: hass?.config?.instance_id };
   }
 
   _sameReadSession(a, b) {
-    return a.connection === b.connection && a.userId === b.userId && a.admin === b.admin;
+    return a.connection === b.connection && a.userId === b.userId && a.admin === b.admin && a.instance === b.instance;
   }
 
   _stopRegistryUpdates() {
@@ -1387,6 +1390,8 @@ class HADeviceHealth extends HTMLElement {
       episodes: ['Recorded episodes', 'Zapisane epizody'],
       entity_availability: ['Entity unknown / unavailable', 'Encja unknown / unavailable'],
       measured_connection: ['Measured connection off', 'Zmierzony brak połączenia'],
+      battery_low: ['Low battery level', 'Niski poziom baterii'],
+      batteryEpisodeThreshold: ['Battery episodes use the current warning threshold', 'Epizody baterii używają bieżącego progu ostrzeżenia'],
       recorded_transition: ['Start: recorded transition', 'Początek: zapisana zmiana stanu'],
       first_observation: ['First negative observation; actual onset unknown', 'Pierwsza negatywna obserwacja; rzeczywisty początek nieznany'],
       recovery_recorded: ['Recovery recorded', 'Powrót zapisany'],
@@ -1542,13 +1547,14 @@ class HADeviceHealth extends HTMLElement {
   _historyEpisodes(rows) {
     const episodes = [], lanes = new Map();
     for (const row of rows) {
-      const kind = row.kind === 'connection' ? 'measured_connection'
+      const kind = row.kind === 'battery' && row.unit === '%' ? 'battery_low' : row.kind === 'connection' ? 'measured_connection'
         : ['reported_available', 'reported_unknown', 'reported_unavailable'].includes(row.kind) ? 'entity_availability' : null;
       if (!kind) continue;
       const key = JSON.stringify([row.entityId, kind]);
       if (!lanes.has(key)) lanes.set(key, { previous: null, active: null });
       const lane = lanes.get(key);
-      const negative = kind === 'measured_connection' ? ['off', 'not_home'].includes(row.state) : row.kind !== 'reported_available';
+      const negative = kind === 'battery_low' ? row.value <= this._config.battery_warning
+        : kind === 'measured_connection' ? ['off', 'not_home'].includes(row.state) : row.kind !== 'reported_available';
       if (negative && !lane.active) {
         const episode = { id: JSON.stringify([row.entityId, kind, row.utc]), entityId: row.entityId, kind,
           start: row.utc, startTime: row.time, startEvidence: lane.previous === false ? 'recorded_transition' : 'first_observation',
@@ -1570,7 +1576,7 @@ class HADeviceHealth extends HTMLElement {
     this._historyEpisodePage = Math.max(0, Math.min(this._historyEpisodePage, pages - 1));
     const visible = episodes.slice(this._historyEpisodePage * 50, (this._historyEpisodePage + 1) * 50);
     return `<details class="history-episodes" ${this._historyEpisodesOpen ? 'open' : ''}><summary>${this._ht('episodes')}: ${episodes.length}</summary>
-      <p>${this._ht('episodeNote')}</p><ol>${visible.map(episode=>`<li><strong>${_esc(this._ht(episode.kind))}</strong><span>${_esc(episode.entityId)}</span>
+      <p>${this._ht('episodeNote')}</p><p>${this._ht('batteryEpisodeThreshold')}: ≤ ${_esc(this._config.battery_warning)} %.</p><ol>${visible.map(episode=>`<li><strong>${_esc(this._ht(episode.kind))}</strong><span>${_esc(episode.entityId)}</span>
       <span>${_esc(this._ht(episode.startEvidence))}</span><time datetime="${_esc(episode.start)}">${_esc(this._historyDate(episode.startTime))} · ${_esc(episode.start)}</time>
       <strong>${_esc(this._ht(episode.status))}</strong>${episode.end ? `<time datetime="${_esc(episode.end)}">${_esc(this._historyDate(episode.endTime))} · ${_esc(episode.end)}</time><span>${this._ht('observedSpan')}: ${_esc(episode.observedSeconds)} s</span>` : ''}</li>`).join('')}</ol>
       ${pages > 1 ? `<div class="history-controls"><button type="button" class="history-episode-prev" ${this._historyEpisodePage === 0 ? 'disabled' : ''}>${this._ht('previous')}</button><span>${this._ht('page')} ${this._historyEpisodePage+1} / ${pages}</span><button type="button" class="history-episode-next" ${this._historyEpisodePage === pages-1 ? 'disabled' : ''}>${this._ht('next')}</button></div>` : ''}</details>`;

@@ -234,7 +234,7 @@ test('first negative observation never invents an onset or recovery; quiet and e
   const p=card._historyProject({'sensor.qa_battery':[sample('unavailable',1),sample('unknown',2),sample('unavailable',3)]},context);
   assert.equal(p.episodes.length,1);assert.equal(p.episodes[0].startEvidence,'first_observation');assert.equal(p.episodes[0].end,null);
   assert.equal(p.episodes[0].observedSeconds,null);assert.equal(p.episodes[0].status,'recovery_unconfirmed');
-  const quiet=card._historyProject({'sensor.qa_battery':[sample('20'),sample('19',6*86400)]},context);
+  const quiet=card._historyProject({'sensor.qa_battery':[sample('80'),sample('79',6*86400)]},context);
   assert.equal(quiet.episodes.length,0);assert.equal(card._historyProject({},context).episodes.length,0);
  }finally{dom.window.close();}
 });
