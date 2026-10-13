@@ -47,3 +47,22 @@ test('decimal battery above the critical threshold remains a warning with its ex
   assert.equal(card._getBatteryDevices()[0].level,10.9);assert.equal(card._alerts[0].type,'battery_warning');
  }finally{dom.window.close();}
 });
+
+test('percentage battery alerts exclude voltage, unknown units and conflicting device classes',()=>{
+ const {dom,card}=setup();
+ try {
+  card.hass={language:'en',user:{id:'qa',is_admin:true},states:{
+   'sensor.qa_charge':state('25.5',{device_class:'battery',unit_of_measurement:'%'}),
+   'sensor.qa_battery_named':state('40',{unit_of_measurement:'%'}),
+   'sensor.qa_battery_voltage':state('3',{device_class:'battery',unit_of_measurement:'V'}),
+   'sensor.qa_battery_millivolts':state('50',{device_class:'battery',unit_of_measurement:'mV'}),
+   'sensor.qa_battery_unspecified':state('8',{device_class:'battery'}),
+   'sensor.qa_battery_humidity':state('7',{device_class:'humidity',unit_of_measurement:'%'}),
+   'switch.qa_lamp':state('on',{})}};
+  const expected=['sensor.qa_charge','sensor.qa_battery_named'];
+  assert.deepEqual(Array.from(card._getBatteryDevices(),x=>x.id),expected);
+  const payload=card._buildBackgroundAutomationPayloads();
+  assert.deepEqual(Array.from(payload.automations[0].payload.trigger[0].entity_id),expected);
+  assert.equal(card._alerts.some(x=>/voltage|millivolts|unspecified|humidity/.test(x.id)),false);
+ } finally {dom.window.close();}
+});
