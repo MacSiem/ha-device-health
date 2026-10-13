@@ -87,6 +87,6 @@ test('administrator retains background automation creation and reload',async()=>
   card._backgroundAlertDialog={automations:[{id:'qa_background',entityId:'automation.qa_background',label:'QA',payload:{alias:'QA'}}],errors:[]};
   await card._createBackgroundAlertAutomations();
   assert.deepEqual(posts,[['post','config/automation/config/qa_background',{alias:'QA'}]]);
-  assert.deepEqual(services,[['automation','reload']]);
+  assert.deepEqual(services.map(args=>[args[0],args[1],{...args[2]},args[3],args[4]]),[['automation','reload',{},undefined,false]]);
  } finally {dom.window.close();}
 });
