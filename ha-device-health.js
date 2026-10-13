@@ -1489,7 +1489,7 @@ class HADeviceHealth extends HTMLElement {
   _historyProject(raw, { start, end, entityIds }) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_history_shape');
     const rows = [], seen = new Set(), missing = [];
-    let invalid = 0, inspected = 0, capped = false;
+    let invalid = 0, inspected = 0, capped = false, firstRecord = null, lastRecord = null;
     const add = (entityId, time, kind, state, value = null, unit = '') => {
       const id = JSON.stringify([entityId, time, kind, state, unit]);
       if (seen.has(id)) return;
@@ -1513,6 +1513,8 @@ class HADeviceHealth extends HTMLElement {
             !Number.isFinite(record.lu) || !Number.isFinite(record.lu * 1000) ||
             record.lu * 1000 < start || record.lu * 1000 >= end || Math.abs(record.lu * 1000) > 8640000000000000) { invalid++; continue; }
         const time = Math.round(record.lu * 1000), attrs = record.a;
+        firstRecord = firstRecord === null ? time : Math.min(firstRecord, time);
+        lastRecord = lastRecord === null ? time : Math.max(lastRecord, time);
         const availability = record.s === 'unavailable' ? 'reported_unavailable' : record.s === 'unknown' ? 'reported_unknown' : 'reported_available';
         if (availability !== previousAvailability) add(entityId,time,availability,record.s);
         previousAvailability = availability;
@@ -1533,7 +1535,8 @@ class HADeviceHealth extends HTMLElement {
     }
     rows.sort((a,b)=>a.time-b.time||a.entityId.localeCompare(b.entityId)||a.kind.localeCompare(b.kind));
     return {rows,episodes:this._historyEpisodes(rows),start,end,entityIds:[...entityIds],missing,invalid,inspected,capped,coverage:'unknown',retention:'unknown',
-      first:rows[0]?.utc || null,last:rows.at(-1)?.utc || null};
+      first:firstRecord === null ? null : new Date(firstRecord).toISOString(),
+      last:lastRecord === null ? null : new Date(lastRecord).toISOString()};
   }
 
   _historyEpisodes(rows) {

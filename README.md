@@ -14,7 +14,8 @@ joins Home Assistant's device and entity registries automatically.
 registries through your Home Assistant connection — no extra integration or YAML:
 
 1. **Batteries.** An entity counts as a battery *level* only when it has
-   `device_class: battery`, or a battery name together with a `%` unit, and a
+   a `%` unit together with `device_class: battery` (or a battery name when
+   no conflicting device class is present), and a
    finite numeric state from 0 to 100. Decimal readings are preserved. Text and
    quantity helpers without battery-level metadata are excluded; humidity
    percentages are not battery readings.
@@ -32,9 +33,9 @@ registries through your Home Assistant connection — no extra integration or YA
    registered physical device once, using its lowest battery reading. Individual
    readings remain visible in Batteries; readings without a registered device
    remain independent. A continuous incident appears once in history. Dismissal
-   lasts until recovery; a later incident can alert again. History and dismissal
+   lasts until recovery; a later incident can alert again. Live alert history and dismissal
    are held in card memory and reset when the card is recreated or the account
-   changes. Counts that need registry identity show a dash while it is unavailable.
+   changes. The separate recorded history below uses Home Assistant Recorder. Counts that need registry identity show a dash while it is unavailable.
 
 ### What is automatic vs. manual
 
@@ -103,6 +104,31 @@ editor draft, thresholds and text selection.
 Device status and network group captions use the same language; device names,
 authored models and connection classifications are retained.
 
+## Recorded device history
+
+On **Devices**, choose a device and a **7-day or 30-day** range, then select
+**Load / refresh**. The card reads state updates retained by Home Assistant
+Recorder. Reopening the card or restarting HA does not erase Recorder records;
+what remains available depends on your Recorder retention and exclusions.
+
+Switch between **Chart** and **Data** to inspect the same records. Select a point
+or use Previous/Next to see its source, value, unit and exact timestamp. Percent
+battery levels and voltage have separate charts; zero remains a measurement.
+Reported unavailable/unknown states and measured connection changes appear as
+separate events. Incidents are grouped into observed episodes, with recovery or
+unknown endings stated explicitly. This is not a measurement of continuous uptime.
+
+The source panel shows the requested range, display time zone, first/last actual
+record, missing sources and limits. Quiet intervals do not prove missing data or
+an offline device. The card does not backfill, interpolate or alter Recorder.
+Reads are explicit and bounded to 16 visible entity sources, 12,000 input records
+and 2,400 projected rows; partial results and omitted sources remain visible.
+
+History requires History/Recorder. Administrators can read it on supported HA
+versions from 2024.1; household history access requires HA 2026.5.0 or newer and
+follows HA permissions. Changing device, account, instance or connection clears
+incompatible results. A failed read does not retry automatically.
+
 ## Background notifications
 
 The Alerts tab works while the card is open. An administrator can choose
@@ -139,8 +165,8 @@ The device is registered in HA but has no current entity state to measure.
 The card will not invent a health result or Wi-Fi classification.
 
 **Why doesn't my battery show up?**
-It needs `device_class: battery`, or a battery name and a `%` unit, plus a finite
-numeric 0–100 state. Text states ("low"/"ok") and quantity helpers without this
+It needs a `%` unit and `device_class: battery`, or a battery name with no
+conflicting device class, plus a finite numeric 0–100 state. Text states ("low"/"ok") and quantity helpers without this
 metadata are excluded.
 
 **Does this send data anywhere?**
@@ -166,8 +192,9 @@ MIT, see [LICENSE](LICENSE).
 ## Privacy and data
 
 The card reads Home Assistant states and device/entity registry metadata to show
-health information. Alert history, acknowledgements and registry data remain in
-card memory. The selected tab and instruction/support dismissal are remembered
+health information. Live alert history, acknowledgements, loaded history results
+and registry data remain in card memory. Recorded source history stays in Home
+Assistant Recorder under its own retention settings. The selected tab and instruction/support dismissal are remembered
 in this browser for the plugin; those preferences are shared across its cards
 and accounts on the same HA origin. Browser storage contains no device names,
 addresses or alert history from this implementation.
