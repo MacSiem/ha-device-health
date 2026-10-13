@@ -47,6 +47,18 @@ registries through your Home Assistant connection — no extra integration or YA
 
 ## Screenshots
 
+Version 4.3 adds recorded history with selectable measurements and observed
+episodes. These two frames show actual Recorder records from synthetic QA sensors
+in Home Assistant 2026.10.1; the short test sequence is clustered near the end of
+the seven-day range. No older measurements have been invented to fill the chart.
+
+| History chart, English and light | Recorded episodes, Polish and dark |
+|---|---|
+| ![Selected battery measurement with timestamp and separate voltage chart](docs/screenshots/history-chart-light.png) | ![Recorded low-battery and availability episodes with recovery dates](docs/screenshots/history-episodes-dark.png) |
+
+The earlier overview frames below were captured for 4.2.9; they illustrate the
+existing tabs and are not evidence of the new history features.
+
 These are native Home Assistant screenshots with synthetic QA devices and
 reserved test addresses. They show the English light theme and Polish dark
 theme; the device table is filtered to the three QA devices.
@@ -118,8 +130,7 @@ Reported unavailable/unknown states and measured connection changes appear as
 separate events. Availability, measured disconnection and low battery readings
 are grouped into observed episodes. Battery episodes use the current warning
 threshold shown beside them (percent only), and update when that setting changes.
-Recovery or
-unknown endings are stated explicitly. This is not a measurement of continuous uptime.
+Recovery or unknown endings are stated explicitly. This is not a measurement of continuous uptime.
 
 The source panel shows the requested range, display time zone, first/last actual
 record, missing sources and limits. Quiet intervals do not prove missing data or

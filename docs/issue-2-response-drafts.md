@@ -1,6 +1,6 @@
 # Device Health issue #2 response drafts
 
-Status: draft only. Coordinator reviews the exact body and target; publication and verified native installation must precede sending. Already sent maintainer replies are not repeated.
+Status: historical review inputs. The combined reply was sent on 9 October 2026 at 04:38:43 UTC after v4.2.9 publication and installation verification: [published reply](https://github.com/MacSiem/ha-device-health/issues/2#issuecomment-6074374060). Read back on 13 October 2026. Do not send these drafts again. The author’s retest remains open.
 
 ## Initial network report
 
@@ -28,4 +28,4 @@ I am leaving this report open because I have not verified the result on your dev
 
 ## Source and limits
 
-The combined body is a delivery proposal covering the initial issue and the support-panel comment. Separate per-input drafts above remain review inputs. Nothing has been sent. The issue remains open until the author's own retest; synthetic QA does not establish success on their devices.
+The combined body below was delivered in the linked 9 October reply, covering the initial issue and support-panel comment. Separate per-input drafts above remain historical review inputs. The issue remains open until the author's own retest; synthetic QA does not establish success on their devices.

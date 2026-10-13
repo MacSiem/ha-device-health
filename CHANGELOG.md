@@ -3,10 +3,10 @@
 ## 4.3.0 (2026-10-13)
 
 - Add explicit 7/30-day recorded history per device from Home Assistant Recorder, with source dates, retention/coverage caveats, missing sources and bounded reads. State history survives card recreation under HA retention rules.
-- Show battery percent and voltage on separate interactive charts with a matching Data view, keyboard selection and observed incident/recovery episodes. Missing states never become zero or invented uptime.
+- Show battery percent and voltage on separate interactive charts with a matching Data view, keyboard selection and observed availability, connection and low-battery episodes. Battery episodes use the displayed current warning threshold. Missing states never become zero or invented uptime.
 - Keep source freshness independent of reduced availability events: a later valid measurement remains the last actual record even when availability is unchanged.
 - Adapt tabs, device records and controls to the card width; retain details and actions in narrow Sections, preserve focus and editor values, and improve touch targets and dialog contrast.
-- Show durable, localized automation outcomes: Success, Partial, Unconfirmed, Error and Not checked. Prevent duplicate/pending writes, clear results when account or role changes, and keep raw server errors out of the card.
+- Show durable, localized automation outcomes: Success, Partial, Unconfirmed, Error and Not checked. Prevent duplicate/pending writes, clear results when account, role or Home Assistant instance changes, and keep raw server errors out of the card.
 - Require percent units for battery-level summaries and generated percent thresholds. Voltage history remains available separately.
 
 ## 4.2.9 (2026-10-09)
