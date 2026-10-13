@@ -248,3 +248,17 @@ test('episode identity and recovery survive pure reprojection and Chart/Data tog
   assert.match(before,/Recovery recorded|Recovery unconfirmed/);
  }finally{dom.window.close();}
 });
+
+test('source dates include later valid Recorder states omitted from the event projection',()=>{
+ const {dom,card}=setup();try{
+  const p=card._historyProject({'sensor.qa_temperature':[
+   sample('20',1,{device_class:'temperature',unit_of_measurement:'°C'}),
+   sample('21',3600,{device_class:'temperature',unit_of_measurement:'°C'}),
+   sample('bad',8*86400,{device_class:'temperature'})
+  ]},{start,end,entityIds:['sensor.qa_temperature']});
+  assert.equal(p.rows.length,1,'unchanged availability still creates only one event');
+  assert.equal(p.first,new Date(start+1000).toISOString());
+  assert.equal(p.last,new Date(start+3600000).toISOString(),'last actual record is independent of event reduction');
+  assert.equal(p.invalid,1);
+ }finally{dom.window.close();}
+});
