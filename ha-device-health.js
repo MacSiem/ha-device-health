@@ -966,6 +966,11 @@ class HADeviceHealth extends HTMLElement {
         reloadFailed: "automation.reload failed: {detail}",
         haRequestFailed: "Home Assistant request failed.",
         haHttpError: "Home Assistant request failed (HTTP {status}).",
+        haPermissionDenied: "Home Assistant denied this request. Check administrator permissions.",
+        haOutcomeUnknown: "The request outcome is unknown. Check the automation configuration before trying again.",
+        automationWriteUnconfirmed: "Write of automation {id} is unconfirmed: {detail}",
+        reloadUnconfirmed: "Reload is unconfirmed: {detail}",
+        automationResultScope: "Result covers configuration writes and reload, not future alert delivery.",
         alert_type_battery_critical: "battery critical",
         alert_type_battery_warning: "battery warning",
         alert_type_signal_weak: "signal weak",
@@ -1071,6 +1076,11 @@ class HADeviceHealth extends HTMLElement {
         reloadFailed: "Przeładowanie automation.reload nie powiodło się: {detail}",
         haRequestFailed: "Żądanie Home Assistant nie powiodło się.",
         haHttpError: "Żądanie Home Assistant nie powiodło się (HTTP {status}).",
+        haPermissionDenied: "Home Assistant odrzucił żądanie. Sprawdź uprawnienia administratora.",
+        haOutcomeUnknown: "Wynik żądania jest nieznany. Sprawdź konfigurację automatyzacji przed ponowieniem.",
+        automationWriteUnconfirmed: "Zapis automatyzacji {id} jest niepotwierdzony: {detail}",
+        reloadUnconfirmed: "Przeładowanie jest niepotwierdzone: {detail}",
+        automationResultScope: "Wynik dotyczy zapisu konfiguracji i przeładowania, nie przyszłego doręczenia alertów.",
         alert_type_battery_critical: "krytyczny poziom baterii",
         alert_type_battery_warning: "niski poziom baterii",
         alert_type_signal_weak: "słaby sygnał",
@@ -2203,12 +2213,41 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _backgroundAlertError(error) {
-    for (const message of [error?.message, error?.body?.message, typeof error === 'string' ? error : null]) {
-      if (typeof message === 'string' && message.trim()) return message;
-    }
     const status = error?.status_code ?? error?.status;
-    return Number.isInteger(status) && status >= 100 && status <= 599
-      ? `Home Assistant request failed (HTTP ${status}).` : 'Home Assistant request failed.';
+    if (Number.isInteger(status) && status >= 400 && status <= 599) return `Home Assistant request failed (HTTP ${status}).`;
+    if (['unauthorized', 'forbidden', 'unauthorized_entity'].includes(error?.code)) return 'Home Assistant denied this request. Check administrator permissions.';
+    return 'The request outcome is unknown. Check the automation configuration before trying again.';
+  }
+
+  _backgroundFailureCode(error) {
+    const status = error?.status_code ?? error?.status;
+    // A transport/server failure can arrive after the write happened. Only an
+    // explicit validation/permission rejection proves that it was rejected.
+    return ['unauthorized', 'forbidden', 'unauthorized_entity', 'invalid_format', 'unknown_command'].includes(error?.code)
+      || [400, 401, 403, 404, 405, 422].includes(status) ? 'error' : 'unconfirmed';
+  }
+
+  _backgroundResultCode(result) {
+    if (result.creating) return 'not_checked';
+    const codes = [...(result.results || []), ...(result.reload ? [result.reload] : [])]
+      .map(row => row.code || (row.ok === true ? 'success' : 'unconfirmed'));
+    if (!codes.length) return 'no_data';
+    if (codes.includes('unconfirmed')) return 'unconfirmed';
+    if (codes.every(code => code === 'success')) return 'success';
+    return codes.includes('success') ? 'partial' : 'error';
+  }
+
+  _renderBackgroundResults(result) {
+    const ui = createUiV3({language:this._lang});
+    const code = ui.status(result.code || this._backgroundResultCode(result)).code;
+    const rows = [...(result.results || []), ...(result.reload ? [{...result.reload,label:'Reload'}] : [])];
+    return `<div role="status" aria-live="polite" data-background-result="${code}">${ui.statusHtml(code)}</div>
+      <p>${_esc(this._t('automationResultScope'))}</p>
+      ${rows.map(row => {
+        const state=ui.status(row.code || (row.ok === true ? 'success' : 'unconfirmed')).code;
+        return `<div class="automation-result automation-result-${state}">${ui.statusHtml(state)}
+          <strong>${_esc(this._backgroundAlertMessage(row.label))}:</strong> ${_esc(this._backgroundAlertMessage(row.message))}</div>`;
+      }).join('')}`;
   }
 
   _backgroundAlertMessage(message) {
@@ -2221,6 +2260,11 @@ class HADeviceHealth extends HTMLElement {
       'Home Assistant state is not available yet. Open the card after Home Assistant finishes loading and try again.': 'haStateNotReady',
       'automation.reload service called.': 'reloadCalled',
       'Home Assistant request failed.': 'haRequestFailed',
+      'Home Assistant denied this request. Check administrator permissions.': 'haPermissionDenied',
+      'The request outcome is unknown. Check the automation configuration before trying again.': 'haOutcomeUnknown',
+      'Reload': 'reload',
+      'Battery': 'batteryAlert',
+      'Offline': 'offlineAlert',
     };
     if (Object.prototype.hasOwnProperty.call(exact, value)) return this._t(exact[value]);
     const patterns = [
@@ -2232,6 +2276,8 @@ class HADeviceHealth extends HTMLElement {
       [/^Failed to update automation ([^:]+): ([\s\S]*)$/, 'automationUpdateFailed', ['id', 'detail']],
       [/^Automation generation failed: ([\s\S]*)$/, 'generationFailed', ['detail']],
       [/^automation\.reload failed: ([\s\S]*)$/, 'reloadFailed', ['detail']],
+      [/^Write of automation ([^:]+) is unconfirmed: ([\s\S]*)$/, 'automationWriteUnconfirmed', ['id', 'detail']],
+      [/^Reload is unconfirmed: ([\s\S]*)$/, 'reloadUnconfirmed', ['detail']],
     ];
     for (const [pattern, key, fields] of patterns) {
       const match = value.match(pattern);
@@ -2239,7 +2285,7 @@ class HADeviceHealth extends HTMLElement {
       const values = Object.fromEntries(fields.map((field, index) => [field, field === 'detail' ? this._backgroundAlertMessage(match[index + 1]) : match[index + 1]]));
       return this._t(key).replace(/\{(\w+)\}/g, (token, field) => values[field] ?? token);
     }
-    return value;
+    return this._t('haRequestFailed');
   }
 
   _alertTypeLabel(type) {
@@ -2265,16 +2311,7 @@ class HADeviceHealth extends HTMLElement {
     const offlineStatus = this._getBackgroundAutomationStatus("automation.ha_device_health_offline_alert");
     const resultHtml = this._hass?.user?.is_admin === true && this._backgroundAlertResult ? `
       <div class="automation-result-summary">
-        ${this._backgroundAlertResult.results.map((result) => `
-          <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
-            <strong>${_esc(this._backgroundAlertMessage(result.label))}:</strong> ${_esc(this._backgroundAlertMessage(result.message))}
-          </div>
-        `).join("")}
-        ${this._backgroundAlertResult.reload ? `
-          <div class="automation-result automation-result-${this._backgroundAlertResult.reload.ok ? "success" : "error"}">
-            <strong>${this._t('reload')}:</strong> ${_esc(this._backgroundAlertMessage(this._backgroundAlertResult.reload.message))}
-          </div>
-        ` : ""}
+        ${this._renderBackgroundResults(this._backgroundAlertResult)}
       </div>
     ` : "";
 
@@ -2339,18 +2376,9 @@ class HADeviceHealth extends HTMLElement {
           <label class="automation-yaml-label" for="background-automation-yaml">${this._t('yamlPreview')}</label>
           <textarea id="background-automation-yaml" class="automation-yaml-preview" readonly spellcheck="false">${_esc(dialog.yaml || "")}</textarea>
 
-          ${dialog.results ? `
+          ${dialog.creating || dialog.results ? `
             <div class="automation-dialog-results">
-              ${dialog.results.map((result) => `
-                <div class="automation-result automation-result-${result.ok ? "success" : "error"}">
-                  <strong>${_esc(this._backgroundAlertMessage(result.label))}:</strong> ${_esc(this._backgroundAlertMessage(result.message))}
-                </div>
-              `).join("")}
-              ${dialog.reload ? `
-                <div class="automation-result automation-result-${dialog.reload.ok ? "success" : "error"}">
-                  <strong>${this._t('reload')}:</strong> ${_esc(this._backgroundAlertMessage(dialog.reload.message))}
-                </div>
-              ` : ""}
+              ${this._renderBackgroundResults(dialog)}
             </div>
           ` : ""}
 
@@ -2395,10 +2423,12 @@ class HADeviceHealth extends HTMLElement {
       creating: true,
       results: null,
       reload: null,
+      code: 'not_checked',
     };
     const operation = { userId: this._hass.user.id, session: this._readSession(), cancelled: false };
     this._backgroundAutomationOperation = operation;
     this._backgroundAlertDialog = dialog;
+    this._backgroundAlertResult = {code:'not_checked',results:[],reload:null};
     const isCurrent = () => this._backgroundAutomationOperation === operation
       && !operation.cancelled && this._backgroundAlertDialog === dialog
       && this._sameReadSession(operation.session, this._readSession())
@@ -2414,16 +2444,21 @@ class HADeviceHealth extends HTMLElement {
           await this._hass.callApi('post', 'config/automation/config/' + automation.id, automation.payload);
           results.push({
             ok: true,
+            code: 'success',
             label: automation.label,
             id: automation.id,
             message: `${existed ? "Updated existing" : "Created"} automation ${automation.id}.`,
           });
         } catch (error) {
+          const code = this._backgroundFailureCode(error);
           results.push({
             ok: false,
+            code,
             label: automation.label,
             id: automation.id,
-            message: `Failed to ${existed ? "update" : "create"} automation ${automation.id}: ${this._backgroundAlertError(error)}`,
+            message: code === 'unconfirmed'
+              ? `Write of automation ${automation.id} is unconfirmed: ${this._backgroundAlertError(error)}`
+              : `Failed to ${existed ? "update" : "create"} automation ${automation.id}: ${this._backgroundAlertError(error)}`,
           });
         }
         if (!isCurrent()) return;
@@ -2433,16 +2468,20 @@ class HADeviceHealth extends HTMLElement {
       if (results.some((result) => result.ok)) {
         if (!isCurrent()) return;
         try {
-          await this._hass.callService('automation', 'reload');
-          reload = { ok: true, message: "automation.reload service called." };
+          await this._hass.callService('automation', 'reload', {}, undefined, false);
+          reload = { ok: true, code:'success', message: "automation.reload service called." };
         } catch (error) {
-          reload = { ok: false, message: `automation.reload failed: ${this._backgroundAlertError(error)}` };
+          const code = this._backgroundFailureCode(error);
+          reload = { ok: false, code, message: code === 'unconfirmed'
+            ? `Reload is unconfirmed: ${this._backgroundAlertError(error)}`
+            : `automation.reload failed: ${this._backgroundAlertError(error)}` };
         }
         if (!isCurrent()) return;
       }
 
-      this._backgroundAlertResult = { results, reload };
-      Object.assign(dialog, { creating: false, results, reload });
+      const code = this._backgroundResultCode({results,reload});
+      this._backgroundAlertResult = { code, results, reload };
+      Object.assign(dialog, { creating: false, code, results, reload });
       this._render();
     } finally {
       const authorized = isCurrent();
@@ -2991,6 +3030,8 @@ class HADeviceHealth extends HTMLElement {
       }
 
       .automation-result {
+        min-width: 0;
+        overflow-wrap: anywhere;
         padding: 8px 10px;
         border-radius: var(--radius-xs);
         font-size: 12px;
