@@ -31,7 +31,7 @@ test('a second create while HA is pending does not duplicate automation writes',
     assert.equal(posts.length, 1);
     finish(); await Promise.all([first, second]);
     assert.deepEqual(posts.map(p => p[1]), ['config/automation/config/qa_battery', 'config/automation/config/qa_offline']);
-    assert.deepEqual(services, [['automation', 'reload', {}, undefined, false]]);
+    assert.deepEqual(services.map(args => [args[0], args[1], {...args[2]}, args[3], args[4]]), [['automation', 'reload', {}, undefined, false]]);
   } finally { finish(); dom.window.close(); }
 });
 
@@ -58,7 +58,7 @@ test('ordinary HA and language updates preserve an authorized pending operation'
     card.hass = { ...card._hass, language: 'pl', user: { id: 'qa-admin', is_admin: true } };
     finish(); await first;
     assert.equal(posts.length, 2);
-    assert.deepEqual(services, [['automation', 'reload', {}, undefined, false]]);
+    assert.deepEqual(services.map(args => [args[0], args[1], {...args[2]}, args[3], args[4]]), [['automation', 'reload', {}, undefined, false]]);
     assert.equal(card._backgroundAlertDialog.creating, false);
     assert.equal(card._backgroundAlertResult.results.every(r => r.ok), true);
   } finally { finish(); dom.window.close(); }
@@ -95,7 +95,7 @@ test('failed writes report failures, skip reload and permit a successful retry',
     card._hass.callApi = async (...args) => { posts.push(args); };
     await card._createBackgroundAlertAutomations();
     assert.equal(posts.length, 4);
-    assert.deepEqual(services, [['automation', 'reload', {}, undefined, false]]);
+    assert.deepEqual(services.map(args => [args[0], args[1], {...args[2]}, args[3], args[4]]), [['automation', 'reload', {}, undefined, false]]);
     assert.equal(card._backgroundAlertResult.results.every(r => r.ok), true);
   } finally { finish(); dom.window.close(); }
 });
@@ -113,7 +113,7 @@ test('partial success and reload failure stay truthful and release the pending g
     assert.equal(card._backgroundAlertResult.reload.ok, false);
     assert.doesNotMatch(card.shadowRoot.textContent, /QA reload denied/);
     assert.equal(card._backgroundAlertResult.code, 'unconfirmed');
-    assert.deepEqual(services, [['automation', 'reload', {}, undefined, false]]);
+    assert.deepEqual(services.map(args => [args[0], args[1], {...args[2]}, args[3], args[4]]), [['automation', 'reload', {}, undefined, false]]);
     card._hass.callService = async (...args) => { services.push(args); };
     await card._createBackgroundAlertAutomations();
     assert.equal(posts.length, 4);
