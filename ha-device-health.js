@@ -661,6 +661,7 @@ const _FAMILY_CONTROL_CSS = `
 .ht-tab-picker[hidden],.tabs[hidden],.det-tabs[hidden] { display:none !important; }
 .tabs,.det-tabs { display:flex;box-sizing:border-box;flex-wrap:wrap !important;overflow:visible !important;min-width:0;max-width:100%; }
 :host .tabs button,:host .det-tabs button { min-height:44px !important;min-width:44px !important;white-space:normal !important;overflow-wrap:anywhere;flex:1 1 auto; }
+.pagination { flex-wrap:wrap; gap:8px; min-width:0; }
 `;
 
 class HADeviceHealth extends HTMLElement {
