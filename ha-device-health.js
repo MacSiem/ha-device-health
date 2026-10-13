@@ -967,6 +967,7 @@ class HADeviceHealth extends HTMLElement {
         haRequestFailed: "Home Assistant request failed.",
         haHttpError: "Home Assistant request failed (HTTP {status}).",
         haPermissionDenied: "Home Assistant denied this request. Check administrator permissions.",
+        haRequestRejected: "Home Assistant rejected this request. Check the configuration and available services.",
         haOutcomeUnknown: "The request outcome is unknown. Check the automation configuration before trying again.",
         automationWriteUnconfirmed: "Write of automation {id} is unconfirmed: {detail}",
         reloadUnconfirmed: "Reload is unconfirmed: {detail}",
@@ -1077,6 +1078,7 @@ class HADeviceHealth extends HTMLElement {
         haRequestFailed: "Żądanie Home Assistant nie powiodło się.",
         haHttpError: "Żądanie Home Assistant nie powiodło się (HTTP {status}).",
         haPermissionDenied: "Home Assistant odrzucił żądanie. Sprawdź uprawnienia administratora.",
+        haRequestRejected: "Home Assistant odrzucił żądanie. Sprawdź konfigurację i dostępne usługi.",
         haOutcomeUnknown: "Wynik żądania jest nieznany. Sprawdź konfigurację automatyzacji przed ponowieniem.",
         automationWriteUnconfirmed: "Zapis automatyzacji {id} jest niepotwierdzony: {detail}",
         reloadUnconfirmed: "Przeładowanie jest niepotwierdzone: {detail}",
@@ -2216,6 +2218,7 @@ class HADeviceHealth extends HTMLElement {
     const status = error?.status_code ?? error?.status;
     if (Number.isInteger(status) && status >= 400 && status <= 599) return `Home Assistant request failed (HTTP ${status}).`;
     if (['unauthorized', 'forbidden', 'unauthorized_entity'].includes(error?.code)) return 'Home Assistant denied this request. Check administrator permissions.';
+    if (['invalid_format', 'unknown_command'].includes(error?.code)) return 'Home Assistant rejected this request. Check the configuration and available services.';
     return 'The request outcome is unknown. Check the automation configuration before trying again.';
   }
 
@@ -2261,6 +2264,7 @@ class HADeviceHealth extends HTMLElement {
       'automation.reload service called.': 'reloadCalled',
       'Home Assistant request failed.': 'haRequestFailed',
       'Home Assistant denied this request. Check administrator permissions.': 'haPermissionDenied',
+      'Home Assistant rejected this request. Check the configuration and available services.': 'haRequestRejected',
       'The request outcome is unknown. Check the automation configuration before trying again.': 'haOutcomeUnknown',
       'Reload': 'reload',
       'Battery': 'batteryAlert',

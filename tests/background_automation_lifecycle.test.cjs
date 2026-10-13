@@ -177,6 +177,8 @@ for (const language of ['en', 'pl']) {
     {name:'all writes and reload accepted', code:'success'},
     {name:'second write explicitly denied', fail:1, error:{status_code:403,message:'RAW_PRIVATE'}, code:'partial', row:'error'},
     {name:'all writes explicitly denied', fail:'all', error:{code:'unauthorized',message:'RAW_PRIVATE'}, code:'error', row:'error'},
+    {name:'command unsupported', fail:'all', error:{code:'unknown_command',message:'RAW_PRIVATE'}, code:'error', row:'error'},
+    {name:'configuration rejected', fail:'all', error:{code:'invalid_format',message:'RAW_PRIVATE'}, code:'error', row:'error'},
     {name:'second write transport unknown', fail:1, error:Error('RAW_PRIVATE'), code:'unconfirmed', row:'unconfirmed'},
     {name:'server may have written before HTTP500', fail:'all', error:{status_code:500,body:{message:'RAW_PRIVATE'}}, code:'unconfirmed', row:'unconfirmed'},
     {name:'string transport error', fail:'all', error:'RAW_PRIVATE', code:'unconfirmed', row:'unconfirmed'},
