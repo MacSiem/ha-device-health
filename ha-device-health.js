@@ -1168,7 +1168,7 @@ class HADeviceHealth extends HTMLElement {
     }
     if (!['tile','compact','full'].includes(config.variant)) this._config.variant=config.compact===true?'compact':'full';
     this._areaFilter = typeof config.area_id === 'string' ? config.area_id : '';
-    if (this._historyDevice && !this._inArea(this._deviceArea(this._historyDevice))) { this._historyDevice=''; this._cancelDeviceHistory('not_checked',true); }
+    if (this._historyDevice && (this._historyDevice === '@area' ? !this._areaFilter : !this._inArea(this._deviceArea(this._historyDevice)))) { this._historyDevice=''; this._cancelDeviceHistory('not_checked',true); }
     const availableTabs = this._visibleTabs();
     if (availableTabs.includes(config.default_tab)) this._activeTab = config.default_tab;
     else if (!availableTabs.includes(this._activeTab)) this._activeTab = availableTabs[0];
@@ -1413,7 +1413,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _historyMembers() {
-    const all = [...this._entityRegistry].filter(([, entry]) => entry.device_id === this._historyDevice && !entry.disabled_by);
+    const all = [...this._entityRegistry].filter(([id,entry]) => !entry.disabled_by && (this._historyDevice==='@area' ? Boolean(this._areaFilter) && this._deviceRegistry.has(entry.device_id) && this._inArea(this._entityArea(id)) : entry.device_id === this._historyDevice));
     const visible = all.filter(([id]) => Object.hasOwn(this._hass?.states || {}, id));
     return { all: all.length, visible: visible.length, ids: visible.map(([id]) => id).sort().slice(0, 16) };
   }
@@ -1421,7 +1421,7 @@ class HADeviceHealth extends HTMLElement {
   _historyContextKey() {
     const hass = this._hass, user = hass?.user;
     const members = this._historyMembers();
-    return JSON.stringify([this._historyDevice, this._historyDays, this._deviceRegistry.has(this._historyDevice), this._registryEpoch, user?.id, user?.is_admin === true,
+    return JSON.stringify([this._historyDevice, this._areaFilter, this._historyDays, this._historyDevice==='@area' ? Boolean(this._areaFilter) : this._deviceRegistry.has(this._historyDevice), this._registryEpoch, user?.id, user?.is_admin === true,
       user?.is_owner === true, user?.is_active, user?.group_ids || [], hass?.config?.version,
       members.all, members.visible, members.ids.map(id => [id, this._hass.states[id]?.attributes?.device_class,
         this._hass.states[id]?.attributes?.unit_of_measurement, this._hass.states[id]?.attributes?.source_type,
@@ -1495,7 +1495,7 @@ class HADeviceHealth extends HTMLElement {
     if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return 'unsupported';
     const version = Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3]);
     if (version < 20240100 || (hass.user.is_admin !== true && (version < 20260500 || (version === 20260500 && match[4])))) return 'unsupported';
-    if (!this._deviceRegistry.has(this._historyDevice)) return 'not_checked';
+    if (this._historyDevice==='@area' ? !this._areaFilter : !this._deviceRegistry.has(this._historyDevice)) return 'not_checked';
     return null;
   }
 
@@ -1734,8 +1734,8 @@ class HADeviceHealth extends HTMLElement {
       visualization=`<ol class="history-data">${rows.map(row=>`<li><button type="button" data-history-row="${_esc(row.id)}" aria-pressed="${row.id===this._historySelected}"><time datetime="${_esc(row.utc)}">${_esc(this._historyDate(row.time))}</time><strong>${_esc(this._ht(row.kind))}</strong><span>${_esc(row.entityId)}</span><span>${_esc(row.value===null ? row.state : row.value)} ${_esc(row.unit)}</span></button></li>`).join('')}</ol>`;
     }
     return `<section class="device-history" aria-label="${this._ht('title')}">
-      <h3>${this._ht('title')}</h3><p>${this._ht('caveat')}</p>
-      <div class="history-controls"><label>${this._ht('device')}<select class="history-device"><option value="">—</option>${devices.map(device=>`<option value="${_esc(device.id)}" ${device.id===this._historyDevice?'selected':''}>${_esc(device.name_by_user||device.name||this._t('genericDevice'))}</option>`).join('')}</select></label>
+      <h3>${this._ht('title')}</h3><p>${this._ht('caveat')}</p>${this._historyDevice==='@area' ? `<p class="history-area-scope">${this._lang==='pl'?'Trend encji należących obecnie do wybranego obszaru. Historia zmian przypisania obszarów nie jest dostępna: wcześniejsze przypisania są nieznane. Encje bez urządzenia oraz pominięte lub nieczytelne nie są wliczane.':'Trend for entities currently assigned to this area. Historical area assignments are unavailable: earlier assignments are unknown. Entities without a device, omitted or unreadable are excluded.'}</p>` : ''}
+      <div class="history-controls"><label>${this._ht('device')}<select class="history-device"><option value="">—</option>${this._areaFilter ? `<option value="@area" ${this._historyDevice==='@area'?'selected':''}>${this._lang==='pl'?'Bieżący obszar:':'Current area:'} ${_esc(this._areaName(this._areaFilter==='__none__'?'':this._areaFilter))}</option>` : ''}${devices.map(device=>`<option value="${_esc(device.id)}" ${device.id===this._historyDevice?'selected':''}>${_esc(device.name_by_user||device.name||this._t('genericDevice'))}</option>`).join('')}</select></label>
       <label>${this._ht('range')}<select class="history-range">${[7,30].map(days=>`<option value="${days}" ${this._historyDays===days?'selected':''}>${days} ${this._ht('days')}</option>`).join('')}</select></label>
       <button type="button" class="history-load" ${this._historyWire?'disabled':''}>${this._ht('load')}</button></div>
       <p class="history-status" role="status">${ui.statusHtml(code)} ${_esc(this._ht(this._historyState==='idle'?'idle':this._historyState))} ${this._historyStale?`<strong>${this._ht('stale')}</strong>`:''}</p>
@@ -1750,7 +1750,8 @@ class HADeviceHealth extends HTMLElement {
         <dt>${this._ht('limits')}</dt><dd>16 ${this._ht('entities')} · 2400 ${this._ht('samples')} · 12000 ${this._ht('inspected')} · 30 × 24 h · 15 s</dd>
         <dt>${this._ht('invalid')}</dt><dd>${result?.invalid||0}</dd><dt>${this._ht('missing')}</dt><dd>${result?.missing.length||0}</dd>
         <dt>${this._ht('entities')}</dt><dd>${scope.entityIds.map(id=>_esc(id)).join('<br>')}</dd></dl></details>`:''}
-      ${this._historyWeekComparison(result).length ? `<section class="history-comparison"><h4>${this._lang==='pl'?'Porównanie obserwacji połączenia':'Connection observation comparison'}</h4><p>${this._lang==='pl'?'Dwa ostatnie pełne tygodnie kalendarzowe (poniedziałek–poniedziałek) w strefie Home Assistant. Liczba zapisanych obserwacji rozłączenia, nie liczba awarii ani czas offline. Pokrycie ciągłe i retencja: nieznane; różnice mogą wynikać z braków danych.':'The last two complete calendar weeks (Monday to Monday) in the Home Assistant time zone. Counts are recorded disconnect observations, not outages or offline duration. Continuous coverage and retention are unknown; differences may reflect missing data.'}</p><ul>${this._historyWeekComparison(result).map(w=>`<li>${_esc(this._historyDate(w.start))} – ${_esc(this._historyDate(w.end))}: <strong>${w.sources ? w.observations : '—'}</strong> · ${this._lang==='pl'?'źródła z wyświetlanymi rekordami':'sources with displayed records'} ${w.sources}/${w.requested}</li>`).join('')}</ul></section>` : ''}
+      ${this._historyWeekComparison(result).length ? `<section class="history-comparison"><h4>${this._lang==='pl'?'Porównanie obserwacji połączenia':'Connection observation comparison'}</h4><p>${this._lang==='pl'?'Dwa ostatnie pełne tygodnie kalendarzowe (poniedziałek–poniedziałek) w strefie Home Assistant. Liczba zapisanych obserwacji rozłączenia, nie liczba awarii ani czas offline. Pokrycie ciągłe i retencja: nieznane; różnice mogą wynikać z braków danych.':'The last two complete calendar weeks (Monday to Monday) in the Home Assistant time zone. Counts are recorded disconnect observations, not outages or offline duration. Continuous coverage and retention are unknown; differences may reflect missing data.'}</p><ul>${this._historyWeekComparison(result).map(w=>`<li>${_esc(this._historyDate(w.start))} – ${_esc(this._historyDate(w.end))}: <strong>${w.sources ? w.observations : '—'}</strong> · ${this._lang==='pl'?'rozłączony między zapisami':'disconnected between observations'}: ${w.boundedSources ? (w.boundedOfflineSeconds / 3600).toFixed(2)+' '+(this._lang==='pl'?'encjo-godz.':'entity-hours') : '—'} · ${this._lang==='pl'?'źródła z wyświetlanymi rekordami':'sources with displayed records'} ${w.sources}/${w.requested}</li>`).join('')}</ul></section>` : ''}
+      ${this._renderConnectionCoverage(result)}
       ${this._renderHistoryEpisodes(result)}
       ${result?.capped?`<p class="history-cap" role="status">${this._ht('cap')}</p>`:''}
       ${result?.rows.length?`<div class="history-controls history-view" role="group" aria-label="${this._ht('chart')} / ${this._ht('data')}"><button type="button" data-history-view="chart" aria-pressed="${this._historyView==='chart'}">${this._ht('chart')}</button><button type="button" data-history-view="data" aria-pressed="${this._historyView==='data'}">${this._ht('data')}</button></div>
@@ -1807,6 +1808,28 @@ class HADeviceHealth extends HTMLElement {
   _inArea(area) { return !this._areaFilter || (this._areaFilter === '__none__' ? !area : this._areaFilter === area); }
   _areaName(id) { return this._hass?.areas?.[id]?.name || (id || (this._lang==='pl'?'Bez obszaru':'No area')); }
 
+  _historyConnectionIntervals(result) {
+    if (!result || result.capped || result.invalid || result.omitted || result.readFailure || result.completedUntil !== result.end) return [];
+    const events=result.rows.filter(row=>['connection','reported_unknown','reported_unavailable'].includes(row.kind)).sort((a,b)=>a.time-b.time);
+    const lanes=new Map(), intervals=[];
+    for (const row of events) {
+      if (row.kind !== 'connection') { lanes.delete(row.entityId); continue; }
+      const prev=lanes.get(row.entityId);
+      if (prev && row.time>prev.time) intervals.push({entityId:row.entityId,start:prev.time,end:row.time,state:['off','not_home'].includes(prev.state)?'off':'on'});
+      lanes.set(row.entityId,row);
+    }
+    return intervals;
+  }
+
+  _renderConnectionCoverage(result) {
+    if (!result) return '';
+    const intervals=this._historyConnectionIntervals(result);
+    const pl=this._lang==='pl';
+    const span=result.end-result.start;
+    const timeline=[...new Set(intervals.map(p=>p.entityId))].map(id=>`<div class="coverage-lane"><span>${_esc(id)}</span><div class="coverage-timeline" role="img" aria-label="${_esc(id)} · ${pl?'oś zapisanych przedziałów; szczegóły poniżej':'recorded intervals; details below'}">${intervals.filter(p=>p.entityId===id).map(p=>`<span class="coverage-interval ${p.state}" style="left:${100*(p.start-result.start)/span}%;width:${100*(p.end-p.start)/span}%" title="${_esc(p.entityId)} · ${_esc(this._historyDate(p.start))} – ${_esc(this._historyDate(p.end))}"></span>`).join('')}</div></div>`).join('');
+    return `<section class="history-coverage"><h4>${pl?'Przedziały pomiędzy zapisami łączności':'Intervals between recorded connection states'}</h4><p>${pl?'Tylko od jednej zapisanej obserwacji łączności do następnej dla tej samej encji, po pełnym odczycie. Stan pomiędzy nimi wynika z ostatniego zapisu; nie dowodzi ciągłości Recorder ani fizycznej dostępności urządzenia. Przed pierwszą i po ostatniej obserwacji oraz po unknown/unavailable: nieznane. Pokrycie stanów i historia przypisań obszarów to osobne ograniczenia.':'Only between consecutive recorded connection observations of the same entity, after a complete read. The preceding recorded state is carried between observations; this does not prove continuous Recorder coverage or physical device availability. Before the first and after the last observation, and after unknown/unavailable: unknown. State coverage and historical area assignments are separate limitations.'}</p>${timeline}${intervals.length ? `<ol>${intervals.map(period=>`<li>${_esc(period.entityId)} · ${period.state==='off'?(pl?'rozłączony':'disconnected'):(pl?'połączony':'connected')} · ${_esc(this._historyDate(period.start))} – ${_esc(this._historyDate(period.end))}</li>`).join('')}</ol>` : `<p>${pl?'Brak potwierdzonych przedziałów; pokrycie nieznane.':'No bounded intervals; coverage unknown.'}</p>`}</section>`;
+  }
+
   _historyWeekComparison(result) {
     if (!result) return [];
     const zone=this._historyZone();
@@ -1825,8 +1848,10 @@ class HADeviceHealth extends HTMLElement {
     return [0,1].map(i=>{
       const end=boundaries[i],start=boundaries[i+1];
       const samples=result.rows.filter(row=>row.time>=start && row.time<end);
+      const boundedOfflineSeconds=this._historyConnectionIntervals(result).filter(p=>p.state==='off').reduce((sum,p)=>sum+Math.max(0,Math.min(end,p.end)-Math.max(start,p.start))/1000,0);
+      const boundedSources=new Set(this._historyConnectionIntervals(result).filter(p=>p.start<end && p.end>start).map(p=>p.entityId)).size;
       return {start,end,observations:samples.filter(row=>row.kind==='connection' && ['off','not_home'].includes(row.state)).length,
-        sources:new Set(samples.map(row=>row.entityId)).size, requested:result.entityIds.length, coverage:'unknown'};
+        boundedOfflineSeconds,boundedSources,sources:new Set(samples.map(row=>row.entityId)).size, requested:result.entityIds.length, coverage:'unknown'};
     });
   }
 
@@ -2579,7 +2604,7 @@ class HADeviceHealth extends HTMLElement {
     const problems = [...offline.map(d => ({name:d.name, detail:`${pl ? 'offline od' : 'offline since'} ${d.offlineSince ? this._calculateUptime(d.offlineSince) : (pl?'nieznane':'unknown')}`})), ...low.map(b => ({name:b.name, detail:`${pl ? 'bateria' : 'battery'} ${b.level}% · ${pl?'próg':'threshold'} ${this._config.battery_warning}%`}))];
     const status = known ? `${offline.length} offline · ${low.length} ${pl ? 'baterie' : 'batteries'}` : (pl ? 'Dane niedostępne' : 'Data unavailable');
     this._renderedLang = this._lang; this._renderedIsAdmin = this._hass.user?.is_admin === true; this._renderedAreas=this._hass?.areas; this._lastRenderTime=Date.now();
-    this.shadowRoot.innerHTML = `<style>:host{display:block;color:var(--primary-text-color);font-size:14px}.simple{padding:16px;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px)}.simple-header{display:flex;align-items:center;gap:12px}.simple-header strong{flex:1}.simple-open{min-height:44px;padding:8px 14px;background:transparent;color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px}.simple ul{padding-left:20px;margin:8px 0}.simple li{overflow-wrap:anywhere}</style><div class="simple"><div class="simple-header"><strong>${_esc(this._config.title ?? this._t('deviceHealth'))}<br><span>${_esc(status)}</span></strong><button type="button" class="simple-open">${pl?'Pokaż':'Show'}</button></div>${this._config.variant === 'compact' ? `<ul>${problems.slice(0,2).map(p=>`<li>${_esc(p.name)} · ${_esc(p.detail)}</li>`).join('')}</ul>${known && !problems.length ? (uncertain ? (pl?'Niektóre stany są nieznane.':'Some states are unknown.') : devices.length ? (pl?'Wszystkie urządzenia działają.':'All devices are working.') : (pl?'Nie znaleziono urządzeń.':'No devices found.')) : problems.length > 2 ? `+ ${problems.length-2}` : ''}` : ''}</div>`;
+    this.shadowRoot.innerHTML = `<style>:host{display:block;color:var(--primary-text-color);font-size:14px}.simple{padding:16px;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px)}.simple-header{display:flex;align-items:center;gap:12px}.simple-header strong{flex:1}.simple-header ha-icon{color:var(--primary-color);flex:none}.simple-open{min-height:44px;padding:8px 14px;background:transparent;color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px}.simple ul{padding-left:20px;margin:8px 0}.simple li{overflow-wrap:anywhere}</style><div class="simple"><div class="simple-header"><ha-icon icon="mdi:devices" aria-hidden="true"></ha-icon><strong>${_esc(this._config.title ?? this._t('deviceHealth'))}<br><span>${_esc(status)}</span></strong><button type="button" class="simple-open">${pl?'Pokaż':'Show'}</button></div>${this._config.variant === 'compact' ? `<ul>${problems.slice(0,2).map(p=>`<li>${_esc(p.name)} · ${_esc(p.detail)}</li>`).join('')}</ul>${known && !problems.length ? (uncertain ? (pl?'Niektóre stany są nieznane.':'Some states are unknown.') : devices.length ? (pl?'Wszystkie urządzenia działają.':'All devices are working.') : (pl?'Nie znaleziono urządzeń.':'No devices found.')) : problems.length > 2 ? `+ ${problems.length-2}` : ''}` : ''}</div>`;
     this.shadowRoot.querySelector('.simple-open').addEventListener('click',()=>{const target=this._config.tap_target;if(typeof target==='string' && target.startsWith('/') && !target.startsWith('//')){history.pushState(null,'',target);window.dispatchEvent(new Event('location-changed'));return;}this._simpleExpanded=true;this._render();this.shadowRoot.querySelector('.simple-close')?.focus();});
   }
 
@@ -3470,6 +3495,7 @@ class HADeviceHealth extends HTMLElement {
             <span>${this._t('totalDevices')}: <strong>${registryUnknown ? '—' : devices.length}</strong></span> <span>${this._t('online')}: <strong>${registryUnknown ? '—' : online}</strong></span> <span>${this._t('availability')}: <strong>${availability}</strong></span>${unlinkedEntities === null || this._areaFilter ? '' : `<span>${this._t('unlinkedEntities')}: <strong>${unlinkedEntities}</strong></span>`}
           </div>
           ${this._groupByDomain ? `<div class="area-breakdown" aria-label="${this._lang==='pl'?'Podział według obszaru':'Area breakdown'}"><p>${this._lang==='pl'?'Według bieżącego przypisania urządzeń.':'Using current device assignments.'}</p>${[...new Set(filteredDevices.map(d=>this._deviceArea(d.id)))].map(area=>{const members=filteredDevices.filter(d=>this._deviceArea(d.id)===area);return `<div><strong>${_esc(this._areaName(area))}</strong>: ${members.length} · ${this._t('offline')}: ${members.filter(d=>d.status==='offline').length} · ${this._t('unknown')}: ${members.filter(d=>d.status==='unknown'||d.status==='unavailable').length}</div>`;}).join('')}</div>` : ''}
+          <section class="snapshot-distribution" aria-label="${this._lang==='pl'?'Rozkład stanów':'Status distribution'}"><h4>${this._lang==='pl'?'Rozkład stanów':'Status distribution'}</h4>${['online','offline','unavailable','unknown'].map(status=>`<div><span>${_esc(this._t(status))}: ${registryUnknown?'—':devices.filter(d=>d.status===status).length}</span>${!registryUnknown && devices.length ? `<meter min="0" max="${devices.length}" value="${devices.filter(d=>d.status===status).length}"></meter>` : ''}</div>`).join('')}</section>
           <div class="table-wrapper">
           <table class="device-table" data-device-records>
             <thead>
@@ -3540,6 +3566,7 @@ class HADeviceHealth extends HTMLElement {
           <div class="stats">
             ${this._t('batteryHealthSummary')}: ${this._registryIdentityUnknown() ? '—' : batteryNeedingAttention} ${this._t('deviceNeedAttention')}
           </div>
+          <section class="battery-distribution" aria-label="${this._lang==='pl'?'Rozkład zmierzonych baterii':'Measured battery distribution'}"><h4>${this._lang==='pl'?'Rozkład zmierzonych baterii':'Measured battery distribution'}</h4><p>${this._lang==='pl'?'Tylko prawidłowe pomiary procentowe; brak pomiaru nie jest zerem.':'Valid percentage readings only; missing measurements are not zero.'}</p>${batteries.length ? `<div>${this._lang==='pl'?'Poniżej lub równo progowi':'At or below threshold'} ${this._config.battery_warning}%: ${batteries.filter(b=>b.level<=this._config.battery_warning).length}</div><div>${this._lang==='pl'?'Powyżej progu':'Above threshold'}: ${batteries.filter(b=>b.level>this._config.battery_warning).length}</div>` : `<p>${this._lang==='pl'?'Brak pomiarów.':'No measurements.'}</p>`}</section>
           <div class="battery-grid">
             ${paginatedBatteries
               .map(
@@ -3877,7 +3904,7 @@ ${style}
 
 ${_FAMILY_CONTROL_CSS}
 ${_FAMILY_RECORD_CSS}
-.device-area{display:block;color:var(--secondary-text-color);font-size:12px}.area-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.area-breakdown>div{border:1px solid var(--divider-color);border-radius:8px;padding:8px}.area-control{display:flex;align-items:center;gap:8px;margin:12px}.simple-close{margin-inline-start:12px;min-height:44px} :host{color-scheme:light} :host(.bento-dark){color-scheme:dark} @media(max-width:500px){.intro-steps{display:none}} input,select,textarea{accent-color:var(--primary-color);background-color:var(--card-background-color);color:var(--primary-text-color)}
+.coverage-timeline{height:20px;position:relative;background:repeating-linear-gradient(135deg,transparent,transparent 4px,var(--divider-color) 4px,var(--divider-color) 5px);margin:12px 0}.coverage-interval{position:absolute;height:100%;background:var(--success-color,#2e7d32)}.coverage-interval.off{background:var(--error-color,#b91c1c);height:50%;bottom:0}.device-area{display:block;color:var(--secondary-text-color);font-size:12px}.area-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.area-breakdown>div{border:1px solid var(--divider-color);border-radius:8px;padding:8px}.area-control{display:flex;align-items:center;gap:8px;margin:12px}.simple-close{margin-inline-start:12px;min-height:44px} :host{color-scheme:light} :host(.bento-dark){color-scheme:dark} @media(max-width:500px){.intro-steps{display:none}} input,select,textarea{accent-color:var(--primary-color);background-color:var(--card-background-color);color:var(--primary-text-color)}
 </style>${this._config.show_help === false ? '' : _renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
     _bindLocalIntroDismiss(this.shadowRoot);
     _bindLocalSupportDismiss(this.shadowRoot);
@@ -4005,7 +4032,7 @@ ${_FAMILY_RECORD_CSS}
       });
     });
 
-    this.shadowRoot.querySelector('.area-filter')?.addEventListener('change',e=>{this._areaFilter=e.target.value;this._currentPage=this._batteryPage=this._networkPage=this._alertsPage=1;if(this._historyDevice&&!this._inArea(this._deviceArea(this._historyDevice))){this._historyDevice='';this._cancelDeviceHistory('not_checked',true);}this._render();});
+    this.shadowRoot.querySelector('.area-filter')?.addEventListener('change',e=>{this._areaFilter=e.target.value;this._currentPage=this._batteryPage=this._networkPage=this._alertsPage=1;if(this._historyDevice==='@area'){if(!this._areaFilter)this._historyDevice='';this._cancelDeviceHistory('not_checked',true);this._syncHistoryContext();}else if(this._historyDevice&&!this._inArea(this._deviceArea(this._historyDevice))){this._historyDevice='';this._cancelDeviceHistory('not_checked',true);}this._render();});
     const searchBox = this.shadowRoot.querySelector(".search-box");
     if (searchBox) {
       searchBox.addEventListener("input", (e) => {

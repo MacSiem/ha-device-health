@@ -287,3 +287,12 @@ test('instance identity change on the same connection clears cached and pending 
   }finally{dom.window.close();}
  }
 });
+test('current-area Recorder read is explicitly scoped and discloses assignment uncertainty',async()=>{
+ const {dom,card,calls}=setup();try{
+  card._deviceRegistry.get('qa-one').area_id='qa-area';card._deviceRegistry.get('qa-two').area_id='other';
+  card._hass.areas={'qa-area':{area_id:'qa-area',name:'QA area'}};card._areaFilter='qa-area';card._historyDevice='@area';card._syncHistoryContext();
+  await card._loadDeviceHistory();assert.ok(calls.length);assert.deepEqual(plain(calls[0].entity_ids),['binary_sensor.qa_link','sensor.qa_battery']);
+  assert.match(card.shadowRoot.querySelector('.history-area-scope').textContent,/Historical area assignments are unavailable/);
+  assert.equal(card.shadowRoot.querySelector('.history-device').value,'@area');
+ }finally{dom.window.close();}
+});
