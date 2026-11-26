@@ -2,6 +2,7 @@
 
 ## 5.3.0 — upcoming Integration / planowana integracja
 
+- Retain the root Dashboard asset during the catalog transition; exact stable-release QA in both HACS categories is required before progressing. / Zachowano plik Dashboard w katalogu głównym; przed kolejnym etapem wymagane jest QA dokładnego wydania w obu kategoriach HACS.
 - After the Dashboard transition period, migrate using the administrator Repairs flow: remove the old Dashboard installation/resource, confirm the check, and refresh. Existing dashboard cards and unrelated resources remain intact. YAML resources require the manual steps in README.
 - Po okresie przejściowym Dashboard użyj Napraw: usuń starą instalację/zasób Dashboard, potwierdź sprawdzenie i odśwież stronę. Istniejące karty i inne zasoby pozostają bez zmian. Dla zasobów YAML wykonaj ręczne kroki z README.
 

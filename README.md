@@ -90,6 +90,31 @@ version becomes available in HACS; until then keep using the Dashboard release.
    If resources are managed in YAML, add the module shown below yourself and
    restart HA. Do not add a second Device Health module.
 
+### Release transition / Okres przejścia wydania
+
+The Integration release must be available before the HACS category change is
+submitted. During catalog propagation, the Dashboard entry can still point to
+that Integration release. This package retains the root `ha-device-health.js`
+and the existing Dashboard resource path for compatibility; their presence
+alone does not prove that HACS will install or update both categories correctly.
+Before release, test the **exact stable release** in an isolated HA/HACS setup:
+update an existing Dashboard installation while the catalog still says Dashboard,
+verify its resource URL, card, configuration and rollback, then test a fresh and
+migrated Integration installation after the category changes. Block the category
+change and release progression if either path fails; resolve HACS packaging or
+catalog behavior and repeat both tests before proceeding.
+
+Wydanie Integration musi być dostępne przed zgłoszeniem zmiany kategorii HACS.
+Podczas propagacji katalog może nadal wskazywać Dashboard, ale pobierać najnowsze
+wydanie Integration. Pakiet zachowuje główny `ha-device-health.js` i dotychczasową
+ścieżkę zasobu Dashboard; sama ich obecność nie dowodzi poprawnej instalacji i
+aktualizacji w obu kategoriach. Przed wydaniem sprawdź **dokładne wydanie stabilne**
+w odizolowanym HA/HACS: aktualizację istniejącego Dashboard przy starej kategorii,
+jego URL zasobu, działanie i konfigurację karty oraz powrót; następnie świeżą
+instalację i migrację Integration po zmianie kategorii. W razie błędu zablokuj
+zmianę kategorii i dalsze wydanie, wyjaśnij obsługę pakietu lub katalogu HACS i
+powtórz oba testy.
+
 ### Moving from Dashboard to Integration
 
 1. Back up Home Assistant and your dashboard configuration. Install and set up
