@@ -6,6 +6,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers import issue_registry as ir
 from .const import DOMAIN, SIGNAL
 from . import frontend, websocket_api
 
@@ -19,7 +20,14 @@ async def async_setup(hass, config):
 
 async def async_setup_entry(hass, entry):
     await frontend.async_register_static(hass)
-    await frontend.async_register_card(hass)
+    result = await frontend.async_register_card(hass)
+    if result == "migration_required":
+        ir.async_create_issue(
+            hass, DOMAIN, "legacy_card_resource", is_fixable=True,
+            severity=ir.IssueSeverity.WARNING, translation_key="legacy_card_resource",
+        )
+    elif result != "manual_required":
+        ir.async_delete_issue(hass, DOMAIN, "legacy_card_resource")
     store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.access", private=True, atomic_writes=True)
     hass.data[DOMAIN][entry.entry_id] = {"store": store}
     @callback
@@ -53,4 +61,5 @@ async def async_unload_entry(hass, entry):
     return True
 
 async def async_remove_entry(hass, entry):
+    ir.async_delete_issue(hass, DOMAIN, "legacy_card_resource")
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.access", private=True, atomic_writes=True).async_remove()

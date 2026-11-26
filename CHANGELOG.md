@@ -1,5 +1,10 @@
 # Changelog — Device Health
 
+## 5.3.0 — upcoming Integration / planowana integracja
+
+- After the Dashboard transition period, migrate using the administrator Repairs flow: remove the old Dashboard installation/resource, confirm the check, and refresh. Existing dashboard cards and unrelated resources remain intact. YAML resources require the manual steps in README.
+- Po okresie przejściowym Dashboard użyj Napraw: usuń starą instalację/zasób Dashboard, potwierdź sprawdzenie i odśwież stronę. Istniejące karty i inne zasoby pozostają bez zmian. Dla zasobów YAML wykonaj ręczne kroki z README.
+
 ## 4.3.0 (2026-10-13)
 
 - Add explicit 7/30-day recorded history per device from Home Assistant Recorder, with source dates, retention/coverage caveats, missing sources and bounded reads. State history survives card recreation under HA retention rules.

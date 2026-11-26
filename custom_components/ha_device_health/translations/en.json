@@ -1,1 +1,39 @@
-{"config":{"abort":{"already_configured":"Device Health is already configured"}},"entity":{"sensor":{"offline":{"name":"Offline devices"},"low_battery":{"name":"Devices with low battery"}},"binary_sensor":{"problem":{"name":"Problem"}}}}
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device Health is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "offline": {
+        "name": "Offline devices"
+      },
+      "low_battery": {
+        "name": "Devices with low battery"
+      }
+    },
+    "binary_sensor": {
+      "problem": {
+        "name": "Problem"
+      }
+    }
+  },
+  "issues": {
+    "legacy_card_resource": {
+      "title": "Migrate the Device Health dashboard resource",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Migrate the Device Health dashboard resource",
+            "description": "First remove the old Device Health Dashboard installation in HACS and confirm its resource has disappeared in Settings → Dashboards → Resources. If you installed it manually, remove only its old Device Health resource there. Do not delete your dashboard cards. Then submit this repair: it checks for remaining copies and registers the Integration resource. Refresh your browser after it succeeds. For YAML resources, follow the README instead."
+          }
+        },
+        "error": {
+          "legacy_resource_remains": "An old Device Health resource is still present. Remove it and try again.",
+          "resources_unavailable": "Resources are unavailable or managed in YAML. Follow the README for manual migration."
+        }
+      }
+    }
+  }
+}

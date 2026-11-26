@@ -77,29 +77,79 @@ RSSI readings. Invalid signal entities are skipped in favor of valid sibling
 readings, then numeric `rssi` or `signal_strength` attributes. Missing readings
 remain unknown and do not become a zero signal value.
 
-## Installation
+## Installation / Instalacja
 
-Requires Home Assistant 2024.1 or later.
+Requires Home Assistant 2024.1 or later. This Integration installation applies
+**after** the announced Dashboard transition period and after the Integration
+version becomes available in HACS; until then keep using the Dashboard release.
 
-1. Open HACS and search for **Device Health** under **Dashboard**.
-2. Download the card and reload the browser when HACS prompts you.
-3. Add `custom:ha-device-health` to your dashboard, including a Sections view.
+1. Install **Device Health** from HACS **Integration**, restart Home Assistant,
+   then add **Device Health** under Settings → Devices & services.
+2. For a new installation, the integration registers its module in storage-mode
+   dashboard resources. Refresh the browser and add `custom:ha-device-health`.
+   If resources are managed in YAML, add the module shown below yourself and
+   restart HA. Do not add a second Device Health module.
 
-If the repository is absent from your HACS search, add
-`https://github.com/MacSiem/ha-device-health` in **Custom repositories** with
-category **Dashboard**, then download it.
+### Moving from Dashboard to Integration
 
-For a manual install, copy `ha-device-health.js` to `config/www/` and register
-`/local/ha-device-health.js` as a JavaScript module resource. Storage dashboards
-use Settings → Dashboards → Resources; YAML configurations can declare the same
-module in `lovelace.resources`. Keep one resource for this card. When moving from
-manual installation to HACS, remove only your old Device Health resource and use
-the HACS resource, then reload the browser. Other dashboard resources stay in place.
+1. Back up Home Assistant and your dashboard configuration. Install and set up
+   the Integration as above. An existing Dashboard resource stays untouched, so
+   the old card may still be displayed until the next steps are complete.
+2. Open Settings → System → Repairs and select **Migrate the Device Health
+   dashboard resource**. Remove the old Device Health **Dashboard** installation
+   in HACS, then check Settings → Dashboards → Resources. If the old Device
+   Health resource remains, remove that resource only. Leave all other resources
+   and existing dashboard cards alone. The card may temporarily stop rendering.
+3. Submit the repair. It checks that old copies are gone and registers the
+   Integration module. If the check fails, remove the indicated old resource and
+   submit again. Refresh the browser and check the existing card and its settings.
+   Do not add the new module before removing the old one: loading both defines
+   the same custom element twice.
 
-If a reload still shows an older card, refresh the cached files for your HA site
-and reload again. Keep sign-in data. Multiple URLs for the same Device Health
-script can retain different cached versions; remove only your own obsolete
-registration when consolidating them.
+If Repairs is unavailable, use the Resources screen to remove the old resource
+and add exactly this URL as a **JavaScript module**, then refresh the browser:
+`/ha_device_health/ha-device-health.js?v=5.3.0`. For YAML-managed resources,
+replace the old Device Health entry in `lovelace.resources` with that URL and
+`type: module`, restart HA and refresh the browser. Preserve all other entries.
+If a manual or unknown Device Health module remains, the integration will not
+replace it; decide which one you own and remove it yourself before retrying.
+
+For rollback, remove the Integration and its Device Health resource (including
+any manually added URL), restore the previous Dashboard release in HACS and its
+resource, and refresh. Restore the dashboard from backup only if needed; the
+migration itself does not edit dashboard configurations. Confirm the old card
+renders before considering rollback complete.
+
+### Migracja z Dashboard do Integration (PL)
+
+Wymagany jest Home Assistant 2024.1 lub nowszy. Poniższe kroki wykonaj **po**
+ogłoszonym okresie przejściowym i udostępnieniu wersji Integration w HACS;
+do tego czasu korzystaj z wydania Dashboard.
+
+1. Zrób kopię HA i konfiguracji dashboardów. Zainstaluj **Device Health** jako
+   **Integration** w HACS, uruchom ponownie HA i dodaj integrację w Ustawienia →
+   Urządzenia i usługi. Stary zasób Dashboard pozostanie bez zmian.
+2. Otwórz Ustawienia → System → Naprawy i wybierz **Przenieś zasób karty Device
+   Health**. Usuń starą instalację Device Health **Dashboard** w HACS. W
+   Ustawienia → Dashboardy → Zasoby sprawdź, czy stary zasób zniknął; jeśli nie,
+   usuń tylko jego wpis. Nie usuwaj istniejących kart ani innych zasobów. Karta
+   może chwilowo przestać się wyświetlać.
+3. Zatwierdź naprawę. Sprawdzi, czy nie pozostała stara kopia, i zarejestruje
+   moduł integracji. Jeśli sprawdzenie się nie powiedzie, usuń stary zasób i
+   ponów naprawę. Odśwież przeglądarkę i sprawdź kartę oraz jej ustawienia. Nie
+   dodawaj nowego modułu przed usunięciem starego: oba definiują tę samą kartę.
+
+Bez Napraw usuń stary wpis i dodaj w Zasobach jako **moduł JavaScript** dokładnie
+`/ha_device_health/ha-device-health.js?v=5.3.0`, po czym odśwież przeglądarkę.
+Dla zasobów YAML zastąp stary wpis Device Health w `lovelace.resources` tym
+adresem i `type: module`, uruchom HA ponownie i odśwież przeglądarkę. Pozostałe
+wpisy zachowaj. Integracja nie przejmuje nieznanej lub ręcznej kopii: usuń ją
+samodzielnie przed ponowieniem, jeśli należy do Ciebie.
+
+Aby wrócić do poprzedniej wersji, usuń integrację i jej zasób Device Health
+(także dodany ręcznie), przywróć poprzednie wydanie Dashboard w HACS oraz jego
+zasób i odśwież przeglądarkę. Migracja nie edytuje konfiguracji dashboardów;
+kopię przywracaj tylko w razie potrzeby. Sprawdź, czy stara karta działa.
 
 ## Quick start
 

@@ -156,7 +156,9 @@ async def async_register_card(hass: HomeAssistant) -> str:
             for record in list(owned):
                 await _delete_owned(state, resources, owned, record)
             _LOGGER.info("Device Health card already loaded from %s", foreign[0].get("url"))
-            return "existing_resource"
+            return ("migration_required" if any(
+                _is_foreign_copy(item.get("url", "")) for item in foreign
+            ) else "existing_resource")
         if owned:
             first, *rest = owned
             if first["url"] != url:

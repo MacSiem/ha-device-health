@@ -88,16 +88,36 @@ class FrontendDeliveryTest(unittest.IsolatedAsyncioTestCase):
     async def test_existing_hacs_url_is_not_adopted_or_deleted(self):
         existing = {"id": "hacs", "url": "/hacsfiles/ha-device-health/ha-device-health.js?hacstag=123", "type": "module"}
         self.resources.items.append(existing.copy())
-        self.assertEqual(await self.frontend.async_register_card(self.hass), "existing_resource")
+        self.assertEqual(await self.frontend.async_register_card(self.hass), "migration_required")
         await self.frontend.async_unregister_card(self.hass)
         self.assertEqual(self.resources.items, [existing])
 
     async def test_existing_marketplace_url_is_preserved(self):
         existing = {"id": "marketplace", "url": "/local/community/ha-device-health/ha-device-health.js?v=4", "type": "module"}
         self.resources.items.append(existing.copy())
-        self.assertEqual(await self.frontend.async_register_card(self.hass), "existing_resource")
+        self.assertEqual(await self.frontend.async_register_card(self.hass), "migration_required")
         await self.frontend.async_unregister_card(self.hass)
         self.assertEqual(self.resources.items, [existing])
+
+    async def test_legacy_migration_retries_preserve_unrelated_and_card_config(self):
+        legacy = {"id": "hacs", "url": "/local/community/ha-device-health/ha-device-health.js?v=4.3.1", "type": "module"}
+        other = {"id": "other", "url": "/local/other.js", "type": "module"}
+        self.resources.items.extend([legacy, other])
+        config = {"type": "custom:ha-device-health", "title": "My devices", "future": {"keep": True}}
+        before = deepcopy(config)
+        for _ in range(2):
+            self.assertEqual(await self.frontend.async_register_card(self.hass), "migration_required")
+            self.assertEqual(self.resources.items, [legacy, other])
+        # HACS or the administrator removes the old resource, not the integration.
+        await self.resources.async_delete_item("hacs")
+        for _ in range(2):
+            self.assertEqual(await self.frontend.async_register_card(self.hass), "resource")
+        self.assertEqual(config, before)
+        self.assertEqual(self.resources.items[0], other)
+        self.assertEqual(len(self.resources.items), 2)
+        self.assertEqual(self.resources.items[1]["url"], self.frontend.versioned_card_url())
+        await self.frontend.async_unregister_card(self.hass)
+        self.assertEqual(self.resources.items, [other])
 
     async def test_missing_and_yaml_resources_do_not_inject(self):
         self.hass.data["lovelace"] = None
