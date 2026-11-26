@@ -3405,7 +3405,7 @@ class HADeviceHealth extends HTMLElement {
     const problems = [...offline.map(d => ({name:d.name, detail:`${pl ? 'offline od' : 'offline since'} ${d.offlineSince ? this._calculateUptime(d.offlineSince) : (pl?'nieznane':'unknown')}`})), ...low.map(b => ({name:b.name, detail:`${pl ? 'bateria' : 'battery'} ${b.level}% · ${pl?'próg':'threshold'} ${this._config.battery_warning}%`}))];
     const status = known ? `${offline.length} offline · ${low.length} ${pl ? 'baterie' : 'batteries'}` : (pl ? 'Dane niedostępne' : 'Data unavailable');
     this._renderedLang = this._lang; this._renderedIsAdmin = this._hass.user?.is_admin === true; this._renderedAreas=this._hass?.areas; this._lastRenderTime=Date.now();
-    this.shadowRoot.innerHTML = `<style>:host{display:block;color:var(--primary-text-color);font-size:14px}.simple{padding:16px;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px)}.simple-header{display:flex;align-items:center;gap:12px}.simple-header strong{flex:1}.simple-header ha-icon{color:var(--primary-color);flex:none}.simple-open{min-height:44px;padding:8px 14px;background:transparent;color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px}.simple ul{padding-left:20px;margin:8px 0}.simple li{overflow-wrap:anywhere}</style><div class="simple"><div class="simple-header"><ha-icon icon="mdi:devices" aria-hidden="true"></ha-icon><strong>${_esc(this._config.title ?? this._t('deviceHealth'))}<br><span>${_esc(status)}</span></strong><button type="button" class="simple-open">${pl?'Pokaż':'Show'}</button></div>${this._config.variant === 'compact' ? `<ul>${problems.slice(0,2).map(p=>`<li>${_esc(p.name)} · ${_esc(p.detail)}</li>`).join('')}</ul>${known && !problems.length ? (uncertain ? (pl?'Niektóre stany są nieznane.':'Some states are unknown.') : devices.length ? (pl?'Wszystkie urządzenia działają.':'All devices are working.') : (pl?'Nie znaleziono urządzeń.':'No devices found.')) : problems.length > 2 ? `+ ${problems.length-2}` : ''}` : ''}</div>`;
+    this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0;container-type:inline-size;color:var(--primary-text-color);font-size:14px}.simple{box-sizing:border-box;min-width:0;padding:16px;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px)}.simple-header{display:flex;align-items:center;gap:12px}.simple-header strong{flex:1}.simple-header ha-icon{color:var(--primary-color);flex:none}.simple-open{min-height:44px;padding:8px 14px;background:transparent;color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px}.simple ul{padding-left:20px;margin:8px 0}.simple li{overflow-wrap:anywhere}@container (max-width: 260px){.simple{padding:10px}.simple-header{flex-wrap:wrap;gap:6px}.simple-header strong{min-width:0;overflow-wrap:anywhere}.simple-open{max-width:100%;white-space:normal}}</style><div class="simple"><div class="simple-header"><ha-icon icon="mdi:devices" aria-hidden="true"></ha-icon><strong>${_esc(this._config.title ?? this._t('deviceHealth'))}<br><span>${_esc(status)}</span></strong><button type="button" class="simple-open">${pl?'Pokaż':'Show'}</button></div>${this._config.variant === 'compact' ? `<ul>${problems.slice(0,2).map(p=>`<li>${_esc(p.name)} · ${_esc(p.detail)}</li>`).join('')}</ul>${known && !problems.length ? (uncertain ? (pl?'Niektóre stany są nieznane.':'Some states are unknown.') : devices.length ? (pl?'Wszystkie urządzenia działają.':'All devices are working.') : (pl?'Nie znaleziono urządzeń.':'No devices found.')) : problems.length > 2 ? `+ ${problems.length-2}` : ''}` : ''}</div>`;
     this.shadowRoot.querySelector('.simple-open').addEventListener('click',()=>{const target=this._config.tap_target;if(typeof target==='string' && target.startsWith('/') && !target.startsWith('//')){history.pushState(null,'',target);window.dispatchEvent(new Event('location-changed'));return;}this._simpleExpanded=true;this._render();this.shadowRoot.querySelector('.simple-close')?.focus();});
   }
 
@@ -4715,6 +4715,42 @@ ${style}
 
 ${_FAMILY_CONTROL_CSS}
 ${_FAMILY_RECORD_CSS}
+/* Layout follows the card's allocated width, including narrow Sections cells. */
+:host{display:block;min-width:0;container-type:inline-size}
+.card-header{min-width:0;overflow-wrap:anywhere}
+@container (max-width: 500px) {
+  .card{padding:12px;min-width:0}
+  .area-control{display:flex;flex-wrap:wrap;margin:8px 0;min-width:0}
+  .area-control select{flex:1 1 100%;width:100%;min-width:0;max-width:100%}
+  .controls,.control-group{min-width:0;max-width:100%}
+  .controls input[type=text],.controls select{min-width:0;max-width:100%}
+  .network-stats{grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))}
+  .background-alerts-status{grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))}
+  .background-alerts-section{padding:10px;overflow-wrap:anywhere}
+  .battery-card,.battery-right,.rssi-bar{flex-wrap:wrap;min-width:0}
+  .battery-name,.battery-info{min-width:0;overflow-wrap:anywhere}
+  canvas{max-width:100%;height:auto}
+  .device-history{padding:10px}
+  .history-provenance dl,.history-data button{grid-template-columns:minmax(0,1fr)}
+  .history-controls label{flex-basis:100%}
+}
+@container (max-width: 260px) {
+  .card{padding:8px}
+  .card-header{font-size:18px}
+  .intro-banner{padding:52px 10px 10px !important}
+  .intro-banner .intro-dismiss{top:5px;right:5px}
+  .intro-banner .intro-headline{overflow-wrap:anywhere}
+  .ht-tab-picker{padding:0;margin-bottom:8px}
+  .controls,.control-group{width:100%}
+  .controls input[type=text],.controls select{width:100%}
+  .stats{padding:8px;overflow-wrap:anywhere}
+  .stats span{display:block}
+  .device-history{padding:8px}
+  .history-plot{margin-inline:12px}
+  .area-breakdown>div{min-width:0;max-width:100%;overflow-wrap:anywhere}
+  [data-device-dashboard-footer]{padding:8px 0 !important}
+  [data-device-dashboard-footer] label,[data-device-dashboard-footer] select,[data-device-dashboard-footer] button{min-width:0;max-width:100%}
+}
 .coverage-timeline{height:20px;position:relative;background:repeating-linear-gradient(135deg,transparent,transparent 4px,var(--divider-color) 4px,var(--divider-color) 5px);margin:12px 0}.coverage-interval{position:absolute;height:100%;background:var(--success-color,#2e7d32)}.coverage-interval.off{background:var(--error-color,#b91c1c);height:50%;bottom:0}.device-area{display:block;color:var(--secondary-text-color);font-size:12px}.area-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.area-breakdown>div{border:1px solid var(--divider-color);border-radius:8px;padding:8px}.area-control{display:flex;align-items:center;gap:8px;margin:12px}.simple-close{margin-inline-start:12px;min-height:44px} :host{color-scheme:light} :host(.bento-dark){color-scheme:dark} @media(max-width:500px){.intro-steps{display:none}} input,select,textarea{accent-color:var(--primary-color);background-color:var(--card-background-color);color:var(--primary-text-color)}
 </style>${this._config.show_help === false ? '' : _renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
     _bindLocalIntroDismiss(this.shadowRoot);
