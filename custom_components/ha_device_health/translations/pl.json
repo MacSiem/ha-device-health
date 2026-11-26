@@ -1,0 +1,56 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device Health jest już skonfigurowany"
+    },
+    "step": {
+      "user": {
+        "title": "Device Health",
+        "description": "Dodaj Device Health do Home Assistant."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "offline": {
+        "name": "Urządzenia offline"
+      },
+      "low_battery": {
+        "name": "Urządzenia z niską baterią"
+      }
+    },
+    "binary_sensor": {
+      "problem": {
+        "name": "Problem"
+      }
+    }
+  },
+  "issues": {
+    "legacy_card_resource": {
+      "title": "Przenieś zasób karty Device Health",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Przenieś zasób karty Device Health",
+            "description": "Najpierw usuń starą instalację Device Health Dashboard w HACS i sprawdź, czy jej zasób zniknął w Ustawienia → Dashboardy → Zasoby. Jeśli instalacja była ręczna, usuń tam tylko stary zasób Device Health. Nie usuwaj kart z dashboardów. Następnie zatwierdź naprawę: sprawdzi pozostałe kopie i zarejestruje zasób integracji. Po sukcesie odśwież przeglądarkę. Dla zasobów YAML postępuj według README."
+          }
+        },
+        "error": {
+          "legacy_resource_remains": "Stary zasób Device Health nadal istnieje. Usuń go i spróbuj ponownie.",
+          "resources_unavailable": "Zasoby są niedostępne lub zarządzane w YAML. Wykonaj ręczną migrację według README."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Globalne agregaty i Recorder",
+        "description": "Włączenie publikuje globalne liczniki i stan problemu Device Health jako encje Home Assistant. Każdy użytkownik mający dostęp do tych encji może zobaczyć agregaty ze wszystkich urządzeń, także bez dostępu do encji źródłowych. Recorder może zapisywać ich stany i statystyki. Wyłączenie zatrzymuje publikację; wcześniej zapisane dane i statystyki mogą pozostać do usunięcia przez Recorder Home Assistant. Karta nadal respektuje uprawnienia do źródeł.",
+        "data": {
+          "global_aggregates": "Publikuj globalne agregaty i statystyki Recorder"
+        }
+      }
+    }
+  }
+}

@@ -140,7 +140,7 @@ test('Chart and Data render equal projection IDs, selection detail, PL/EN and 44
   card.shadowRoot.querySelector('[data-history-view="data"]').click();
   const dataIds=[...card.shadowRoot.querySelectorAll('[data-history-row]')].map(n=>n.dataset.historyRow);
   assert.deepEqual(dataIds,chartIds);card.shadowRoot.querySelector('[data-history-row]').click();
-  assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/2026-10-05/);
+  assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/05\/10\/2026/);
   card._lang='pl';card._render();assert.match(card.shadowRoot.querySelector('.device-history').textContent,/Historia|historia|historii/);
   assert.match(card.shadowRoot.querySelector('style').textContent,/\.history-controls[\s\S]*min-height:\s*44px/);
  }finally{dom.window.close();}
@@ -286,4 +286,13 @@ test('instance identity change on the same connection clears cached and pending 
    if(read){assert.equal(typeof release,'function','the original-instance read really started');release(fixture);await read;assert.equal(card._historyResult,null);}
   }finally{dom.window.close();}
  }
+});
+test('current-area Recorder read is explicitly scoped and discloses assignment uncertainty',async()=>{
+ const {dom,card,calls}=setup();try{
+  card._deviceRegistry.get('qa-one').area_id='qa-area';card._deviceRegistry.get('qa-two').area_id='other';
+  card._hass.areas={'qa-area':{area_id:'qa-area',name:'QA area'}};card._areaFilter='qa-area';card._historyDevice='@area';card._syncHistoryContext();
+  await card._loadDeviceHistory();assert.ok(calls.length);assert.deepEqual(plain(calls[0].entity_ids),['binary_sensor.qa_link','sensor.qa_battery']);
+  assert.match(card.shadowRoot.querySelector('.history-area-scope').textContent,/Historical area assignments are unavailable/);
+  assert.equal(card.shadowRoot.querySelector('.history-device').value,'@area');
+ }finally{dom.window.close();}
 });

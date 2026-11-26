@@ -1,0 +1,20 @@
+{
+  "domain": "ha_device_health",
+  "name": "Device Health",
+  "codeowners": [
+    "@MacSiem"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "lovelace",
+    "websocket_api"
+  ],
+  "documentation": "https://github.com/MacSiem/ha-device-health",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/MacSiem/ha-device-health/issues",
+  "requirements": [],
+  "version": "5.3.0"
+}

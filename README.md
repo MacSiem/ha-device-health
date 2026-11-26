@@ -77,9 +77,15 @@ RSSI readings. Invalid signal entities are skipped in favor of valid sibling
 readings, then numeric `rssi` or `signal_strength` attributes. Missing readings
 remain unknown and do not become a zero signal value.
 
-## Installation
+## Installation / Instalacja
 
-Requires Home Assistant 2024.1 or later.
+The public Dashboard 4.3.1 declares Home Assistant 2024.1 as its minimum. The
+minimum for the future Integration release is **not yet established**: its source
+compatibility and runtime still need verification. This candidate currently sets
+`homeassistant: 2024.7.0` in `hacs.json`; that is a distribution gate, not proof
+of compatibility. Integration installation applies **after** the announced
+Dashboard transition period and availability in HACS; until then keep using the
+Dashboard release.
 
 **Planned transition:** After a transition period, the current Device Health
 Dashboard listing will be removed from the catalog. Its successor will be an
@@ -95,25 +101,117 @@ usuwaj teraz karty ani nie instaluj integracji na potrzeby tej zmiany. Zachowaj
 kopię konfiguracji pulpitu. Termin i potwierdzoną instrukcję migracji podamy
 później, przed zmianą.
 
-1. Open HACS and search for **Device Health** under **Dashboard**.
-2. Download the card and reload the browser when HACS prompts you.
-3. Add `custom:ha-device-health` to your dashboard, including a Sections view.
+**Once the transition ends and Integration is available:**
 
-If the repository is absent from your HACS search, add
-`https://github.com/MacSiem/ha-device-health` in **Custom repositories** with
-category **Dashboard**, then download it.
+1. Install **Device Health** from HACS **Integration**, restart Home Assistant,
+   then add **Device Health** under Settings → Devices & services.
+2. For a new installation, the integration registers its module in storage-mode
+   dashboard resources. Refresh the browser and add `custom:ha-device-health`.
+   If resources are managed in YAML, add the module shown below yourself and
+   restart HA. Do not add a second Device Health module.
 
-For a manual install, copy `ha-device-health.js` to `config/www/` and register
-`/local/ha-device-health.js` as a JavaScript module resource. Storage dashboards
-use Settings → Dashboards → Resources; YAML configurations can declare the same
-module in `lovelace.resources`. Keep one resource for this card. When moving from
-manual installation to HACS, remove only your old Device Health resource and use
-the HACS resource, then reload the browser. Other dashboard resources stay in place.
+### Release transition / Okres przejścia wydania
 
-If a reload still shows an older card, refresh the cached files for your HA site
-and reload again. Keep sign-in data. Multiple URLs for the same Device Health
-script can retain different cached versions; remove only your own obsolete
-registration when consolidating them.
+The Integration release must be available before the HACS category change is
+submitted. During catalog propagation, the Dashboard entry can still point to
+that Integration release. This package retains the root `ha-device-health.js`
+and the existing Dashboard resource path for compatibility; their presence
+alone does not prove that HACS will install or update both categories correctly.
+The candidate’s shared `hacs.json` minimum of 2024.7 can prevent the new
+release from being offered or downloaded on HA 2024.1–2024.6 even while the
+catalog still calls it Dashboard. The published 4.3.1 tag retains its own 2024.1
+minimum; retaining or selecting that version and its existing resource must be
+verified in HACS, not assumed. This compatibility tradeoff requires owner review
+before release; do not change the published 4.3.1 metadata.
+
+Before release, test the **exact stable release** in an isolated HA/HACS setup:
+update an existing Dashboard installation while the catalog still says Dashboard,
+verify its resource URL, card, configuration and rollback, then test a fresh and
+migrated Integration installation after the category changes. Block the category
+change and release progression if either path fails; resolve HACS packaging or
+catalog behavior and repeat both tests before proceeding.
+
+Wydanie Integration musi być dostępne przed zgłoszeniem zmiany kategorii HACS.
+Podczas propagacji katalog może nadal wskazywać Dashboard, ale pobierać najnowsze
+wydanie Integration. Pakiet zachowuje główny `ha-device-health.js` i dotychczasową
+ścieżkę zasobu Dashboard; sama ich obecność nie dowodzi poprawnej instalacji i
+aktualizacji w obu kategoriach. Wspólne minimum kandydata 2024.7 w `hacs.json`
+może zablokować oferowanie lub
+pobranie nowej wersji na HA 2024.1–2024.6 jeszcze pod kategorią Dashboard.
+Opublikowany tag 4.3.1 zachowuje własne minimum 2024.1; zachowanie albo wybór tej
+wersji i jej zasobu trzeba sprawdzić w HACS. Ten kompromis wymaga oceny ownera
+przed wydaniem; nie zmieniaj metadanych opublikowanego 4.3.1.
+
+Przed wydaniem sprawdź **dokładne wydanie stabilne**
+w odizolowanym HA/HACS: aktualizację istniejącego Dashboard przy starej kategorii,
+jego URL zasobu, działanie i konfigurację karty oraz powrót; następnie świeżą
+instalację i migrację Integration po zmianie kategorii. W razie błędu zablokuj
+zmianę kategorii i dalsze wydanie, wyjaśnij obsługę pakietu lub katalogu HACS i
+powtórz oba testy.
+
+### Moving from Dashboard to Integration
+
+1. Back up Home Assistant and your dashboard configuration. Install and set up
+   the Integration as above. An existing Dashboard resource stays untouched, so
+   the old card may still be displayed until the next steps are complete.
+2. Open Settings → System → Repairs and select **Migrate the Device Health
+   dashboard resource**. Remove the old Device Health **Dashboard** installation
+   in HACS, then check Settings → Dashboards → Resources. If the old Device
+   Health resource remains, remove that resource only. Leave all other resources
+   and existing dashboard cards alone. The card may temporarily stop rendering.
+3. Submit the repair. It checks that old copies are gone and registers the
+   Integration module. If the check fails, remove the indicated old resource and
+   submit again. Refresh the browser and check the existing card and its settings.
+   Do not add the new module before removing the old one: loading both defines
+   the same custom element twice.
+
+If Repairs is unavailable, use the Resources screen to remove the old resource
+and add exactly this URL as a **JavaScript module**, then refresh the browser:
+`/ha_device_health/ha-device-health.js?v=5.3.0`. For YAML-managed resources,
+replace the old Device Health entry in `lovelace.resources` with that URL and
+`type: module`, restart HA and refresh the browser. Preserve all other entries.
+If a manual or unknown Device Health module remains, the integration will not
+replace it; decide which one you own and remove it yourself before retrying.
+
+For rollback, remove the Integration and its Device Health resource (including
+any manually added URL), restore the previous Dashboard release in HACS and its
+resource, and refresh. Restore the dashboard from backup only if needed; the
+migration itself does not edit dashboard configurations. Confirm the old card
+renders before considering rollback complete.
+
+### Migracja z Dashboard do Integration (PL)
+
+Publiczne wydanie Dashboard 4.3.1 deklaruje minimum Home Assistant 2024.1.
+Minimum przyszłej integracji **nie jest jeszcze ustalone**: wymaga sprawdzenia
+zgodności kodu i działania. Kandydat ma obecnie `homeassistant: 2024.7.0` w
+`hacs.json`; to ograniczenie dystrybucji, nie dowód zgodności. Poniższe kroki
+wykonaj **po** okresie przejściowym i udostępnieniu Integration w HACS; do tego
+czasu korzystaj z wydania Dashboard.
+
+1. Zrób kopię HA i konfiguracji dashboardów. Zainstaluj **Device Health** jako
+   **Integration** w HACS, uruchom ponownie HA i dodaj integrację w Ustawienia →
+   Urządzenia i usługi. Stary zasób Dashboard pozostanie bez zmian.
+2. Otwórz Ustawienia → System → Naprawy i wybierz **Przenieś zasób karty Device
+   Health**. Usuń starą instalację Device Health **Dashboard** w HACS. W
+   Ustawienia → Dashboardy → Zasoby sprawdź, czy stary zasób zniknął; jeśli nie,
+   usuń tylko jego wpis. Nie usuwaj istniejących kart ani innych zasobów. Karta
+   może chwilowo przestać się wyświetlać.
+3. Zatwierdź naprawę. Sprawdzi, czy nie pozostała stara kopia, i zarejestruje
+   moduł integracji. Jeśli sprawdzenie się nie powiedzie, usuń stary zasób i
+   ponów naprawę. Odśwież przeglądarkę i sprawdź kartę oraz jej ustawienia. Nie
+   dodawaj nowego modułu przed usunięciem starego: oba definiują tę samą kartę.
+
+Bez Napraw usuń stary wpis i dodaj w Zasobach jako **moduł JavaScript** dokładnie
+`/ha_device_health/ha-device-health.js?v=5.3.0`, po czym odśwież przeglądarkę.
+Dla zasobów YAML zastąp stary wpis Device Health w `lovelace.resources` tym
+adresem i `type: module`, uruchom HA ponownie i odśwież przeglądarkę. Pozostałe
+wpisy zachowaj. Integracja nie przejmuje nieznanej lub ręcznej kopii: usuń ją
+samodzielnie przed ponowieniem, jeśli należy do Ciebie.
+
+Aby wrócić do poprzedniej wersji, usuń integrację i jej zasób Device Health
+(także dodany ręcznie), przywróć poprzednie wydanie Dashboard w HACS oraz jego
+zasób i odśwież przeglądarkę. Migracja nie edytuje konfiguracji dashboardów;
+kopię przywracaj tylko w razie potrzeby. Sprawdź, czy stara karta działa.
 
 ## Quick start
 
@@ -152,8 +250,9 @@ an offline device. The card does not backfill, interpolate or alter Recorder.
 Reads are explicit and bounded to 16 visible entity sources, 12,000 input records
 and 2,400 projected rows; partial results and omitted sources remain visible.
 
-History requires History/Recorder. Administrators can read it on supported HA
-versions from 2024.1; household history access requires HA 2026.5.0 or newer and
+History requires History/Recorder. Administrators can read it on HA versions
+supported by the installed release; household history access requires HA 2026.5.0
+or newer and
 follows HA permissions. Changing device, account, instance or connection clears
 incompatible results. A failed read does not retry automatically.
 

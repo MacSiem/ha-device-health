@@ -1,12 +1,16 @@
 # Changelog — Device Health
 
-## 4.3.1 (unreleased)
+## 5.3.0 — upcoming Integration / planowana integracja
 
-- Inform administrators in Polish or English that the Dashboard listing will be
-  removed after a transition period and succeeded by an Integration. Update the
-  current card as usual; its settings remain. The date and migration instructions
-  will be announced later. The notice can be dismissed locally in the browser.
-- Keep the existing Dashboard installation and Home Assistant 2024.1 minimum.
+- Retain the root Dashboard asset during the catalog transition; exact stable-release QA in both HACS categories is required before progressing. / Zachowano plik Dashboard w katalogu głównym; przed kolejnym etapem wymagane jest QA dokładnego wydania w obu kategoriach HACS.
+- After the Dashboard transition period, migrate using the administrator Repairs flow: remove the old Dashboard installation/resource, confirm the check, and refresh. Existing dashboard cards and unrelated resources remain intact. YAML resources require the manual steps in README.
+- Po okresie przejściowym Dashboard użyj Napraw: usuń starą instalację/zasób Dashboard, potwierdź sprawdzenie i odśwież stronę. Istniejące karty i inne zasoby pozostają bez zmian. Dla zasobów YAML wykonaj ręczne kroki z README.
+
+## 4.3.1 (2026-11-26)
+
+- Informed administrators in Polish or English that the Dashboard listing would be removed after a transition period and succeeded by an Integration. The existing card and settings remain; the release stated that the date and migration instructions would be announced later. The notice can be dismissed locally in the browser.
+- Kept the existing Dashboard installation and Home Assistant 2024.1 minimum.
+
 
 ## 4.3.0 (2026-10-13)
 
