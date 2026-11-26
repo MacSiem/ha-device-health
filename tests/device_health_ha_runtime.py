@@ -45,6 +45,14 @@ async def main():
             flow = await request('POST', '/api/config/config_entries/flow', json={'handler': 'ha_device_health', 'show_advanced_options': True}, headers=headers)
             assert flow['type'] == 'create_entry', flow
             entry_id = flow['result']['entry_id']
+            async def set_global(enabled):
+                options = await request('POST', '/api/config/config_entries/options/flow', json={'handler': entry_id}, headers=headers)
+                assert options['type'] == 'form', options
+                result = await request('POST', f"/api/config/config_entries/options/flow/{options['flow_id']}", json={'global_aggregates': enabled}, headers=headers)
+                assert result['type'] == 'create_entry', result
+            states = await request('GET', '/api/states', headers=headers)
+            assert not any(x['entity_id'].startswith(('sensor.device_health_', 'binary_sensor.device_health_')) for x in states)
+            await set_global(True)
             async with session.ws_connect(BASE + '/api/websocket') as ws:
                 await ws.receive_json()
                 await ws.send_json({'type': 'auth', 'access_token': token['access_token']})
@@ -74,6 +82,21 @@ async def main():
                     await asyncio.sleep(1)
                 assert len(found) == 3, found
                 assert all(value == 'unknown' for value in found.values()), found
+                original_ids = set(found)
+                await set_global(False)
+                for _ in range(30):
+                    states = (await command('get_states'))['result']
+                    if not original_ids.intersection(x['entity_id'] for x in states):
+                        break
+                    await asyncio.sleep(1)
+                assert not original_ids.intersection(x['entity_id'] for x in states)
+                await set_global(True)
+                for _ in range(30):
+                    states = (await command('get_states'))['result']
+                    if original_ids.issubset(x['entity_id'] for x in states):
+                        break
+                    await asyncio.sleep(1)
+                assert original_ids.issubset(x['entity_id'] for x in states)
                 access = await command('ha_device_health/access')
                 assert access['success'] and access['result']['entry_id'] == entry_id and access['result']['status'] == 'active', access
                 caps = await command('ha_device_health/capabilities', entry_id=entry_id)

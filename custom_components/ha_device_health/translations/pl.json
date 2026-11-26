@@ -41,5 +41,19 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Globalne agregaty i Recorder",
+        "description": "Włączenie publikuje globalne liczniki i stan problemu Device Health jako encje Home Assistant. Każdy użytkownik mający dostęp do tych encji może zobaczyć agregaty ze wszystkich urządzeń, także bez dostępu do encji źródłowych. Recorder może zapisywać ich stany i statystyki. Wyłączenie zatrzymuje publikację; wcześniej zapisane dane i statystyki mogą pozostać do usunięcia przez Recorder Home Assistant. Karta nadal respektuje uprawnienia do źródeł.",
+        "data": {
+          "global_aggregates": "Publikuj globalne agregaty i statystyki Recorder"
+        }
+      }
+    },
+    "abort": {
+      "admin_required": "Zmianę może wykonać tylko aktywny administrator."
+    }
   }
 }

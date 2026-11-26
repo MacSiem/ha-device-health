@@ -41,5 +41,19 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Global aggregates and Recorder",
+        "description": "Enabling publishes global Device Health counts and problem state as Home Assistant entities. Any user allowed to see those entities can see aggregates derived from all devices, even when they cannot access the source entities. Recorder may store their states and statistics. Turning this off stops publication; previously recorded data and statistics may remain until removed through Home Assistant Recorder. The card continues to respect source permissions.",
+        "data": {
+          "global_aggregates": "Publish global aggregates and Recorder statistics"
+        }
+      }
+    },
+    "abort": {
+      "admin_required": "An active administrator is required to change this setting."
+    }
   }
 }
