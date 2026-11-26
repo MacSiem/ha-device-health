@@ -77,7 +77,70 @@ async def main():
                 await request('POST', f'/api/config/config_entries/entry/{entry_id}/reload', headers=headers)
                 get = await command('ha_device_health/policy/get', entry_id=entry_id)
                 assert get['success'] and get['result']['policy'] == policy and get['result']['revision'] == 1, get
-                print('PASS: config flow, native unknown states, direct WS, policy revision/conflict and reload persistence', flush=True)
+                fixture = await request('POST', '/api/config/config_entries/flow', json={'handler': 'device_health_fixture'}, headers=headers)
+                assert fixture['type'] == 'create_entry', fixture
+                for _ in range(10):
+                    if Path('/config/qa_fixture.json').exists():
+                        break
+                    await asyncio.sleep(1)
+                fixture_data = json.loads(Path('/config/qa_fixture.json').read_text())
+                async def aggregates(expected):
+                    for _ in range(20):
+                        states = (await command('get_states'))['result']
+                        found = {x['entity_id']: x['state'] for x in states if x['entity_id'].startswith(('sensor.device_health_', 'binary_sensor.device_health_'))}
+                        if sorted(found.values()) == sorted(expected):
+                            return
+                        await asyncio.sleep(.25)
+                    raise AssertionError(f'aggregate states: {found} expected {expected}')
+                await aggregates(['0', '0', 'off'])
+                await request('POST', '/api/states/' + fixture_data['link'], headers=headers, json={'state': 'off', 'attributes': {'device_class': 'connectivity'}}, expected=200)
+                await request('POST', '/api/states/' + fixture_data['battery'], headers=headers, json={'state': '10', 'attributes': {'device_class': 'battery', 'unit_of_measurement': '%'}}, expected=200)
+                await aggregates(['1', '1', 'on'])
+                async def role(token_name):
+                    child = await session.ws_connect(BASE + '/api/websocket')
+                    await child.receive_json()
+                    await child.send_json({'type': 'auth', 'access_token': fixture_data[token_name]})
+                    assert (await child.receive_json())['type'] == 'auth_ok'
+                    return child
+                async def child_command(child, msg):
+                    await child.send_json(msg)
+                    while True:
+                        result = await child.receive_json()
+                        if result.get('id') == msg['id']:
+                            return result
+                async with contextlib.AsyncExitStack() as stack:
+                    ordinary = await stack.enter_async_context(await role('ordinary'))
+                    restricted = await stack.enter_async_context(await role('restricted'))
+                    ordinary_access = await child_command(ordinary, {'id': 1, 'type': 'ha_device_health/access'})
+                    assert ordinary_access['success'] and ordinary_access['result']['features']['diagnostics']['read'] is False and 'entry_id' not in ordinary_access['result'], ordinary_access
+                    restricted_access = await child_command(restricted, {'id': 1, 'type': 'ha_device_health/access'})
+                    assert restricted_access['success'] and restricted_access['result']['features']['diagnostics']['read'] is False, restricted_access
+                    for child in (ordinary, restricted):
+                        denied = await child_command(child, {'id': 2, 'type': 'ha_device_health/policy/get', 'entry_id': entry_id})
+                        assert not denied['success'], denied
+                        denied = await child_command(child, {'id': 3, 'type': 'ha_device_health/policy/set', 'entry_id': entry_id, 'policy': policy, 'revision': 1})
+                        assert not denied['success'], denied
+                    normal = await child_command(ordinary, {'id': 4, 'type': 'ha_device_health/access/subscribe'})
+                    assert normal['success'], normal
+                    default = {'schema': 1, 'features': {}}
+                    update = await command('ha_device_health/policy/set', entry_id=entry_id, policy=default, revision=1)
+                    assert update['success'], update
+                    event = await asyncio.wait_for(ordinary.receive_json(), 5)
+                    assert event == {'id': 4, 'type': 'event', 'event': {'changed': True}}, event
+                    allowed = await child_command(ordinary, {'id': 5, 'type': 'ha_device_health/access'})
+                    assert allowed['success'] and allowed['result']['features']['diagnostics']['read'] is True, allowed
+                    denied = await child_command(restricted, {'id': 4, 'type': 'ha_device_health/access'})
+                    assert denied['success'] and denied['result']['features']['diagnostics']['read'] is False, denied
+                    states = await child_command(restricted, {'id': 5, 'type': 'get_states'})
+                    restricted_ids = {state['entity_id'] for state in states['result']}
+                    assert fixture_data['link'] in restricted_ids and fixture_data['battery'] not in restricted_ids, restricted_ids
+                    revoke = await command('ha_device_health/policy/set', entry_id=entry_id, policy=policy, revision=2)
+                    assert revoke['success'], revoke
+                    event = await asyncio.wait_for(ordinary.receive_json(), 5)
+                    assert event['event'] == {'changed': True}, event
+                    revoked = await child_command(ordinary, {'id': 6, 'type': 'ha_device_health/access'})
+                    assert revoked['result']['features']['diagnostics']['read'] is False, revoked
+                print('PASS: config, native unknown/zero/positive, admin/ordinary/restricted WS, native entity filter, denial, subscription, revoke, revision/conflict and reload', flush=True)
     finally:
         process.terminate()
         try:
