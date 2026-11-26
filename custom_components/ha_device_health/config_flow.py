@@ -20,11 +20,8 @@ class DeviceHealthFlow(ConfigFlow, domain=DOMAIN):
 
 class DeviceHealthOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input=None):
-        # Resolve the authenticated actor again on submission, not just at flow start.
-        user_id = self.context.get("user_id")
-        user = await self.hass.auth.async_get_user(user_id) if user_id else None
-        if not user or not user.is_active or not user.is_admin:
-            return self.async_abort(reason="admin_required")
+        # HA's options-flow HTTP endpoints require an authenticated admin on
+        # both initiation and submission. HA does not pass an actor in context.
         if user_input is not None:
             return self.async_create_entry(title="", data={
                 **self.config_entry.options,

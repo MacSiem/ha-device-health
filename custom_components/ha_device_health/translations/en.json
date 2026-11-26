@@ -51,9 +51,6 @@
           "global_aggregates": "Publish global aggregates and Recorder statistics"
         }
       }
-    },
-    "abort": {
-      "admin_required": "An active administrator is required to change this setting."
     }
   }
 }
