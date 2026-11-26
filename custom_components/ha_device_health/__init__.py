@@ -28,12 +28,14 @@ async def async_setup_entry(hass, entry):
     for event in (EVENT_STATE_CHANGED, dr.EVENT_DEVICE_REGISTRY_UPDATED, er.EVENT_ENTITY_REGISTRY_UPDATED):
         entry.async_on_unload(hass.bus.async_listen(event, changed))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    async_dispatcher_send(hass, websocket_api.ACCESS_SIGNAL)
     return True
 
 async def async_unload_entry(hass, entry):
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     hass.data[DOMAIN].pop(entry.entry_id, None)
+    async_dispatcher_send(hass, websocket_api.ACCESS_SIGNAL)
     return True
 
 async def async_remove_entry(hass, entry):
