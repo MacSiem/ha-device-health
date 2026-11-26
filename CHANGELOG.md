@@ -6,6 +6,12 @@
 - After the Dashboard transition period, migrate using the administrator Repairs flow: remove the old Dashboard installation/resource, confirm the check, and refresh. Existing dashboard cards and unrelated resources remain intact. YAML resources require the manual steps in README.
 - Po okresie przejściowym Dashboard użyj Napraw: usuń starą instalację/zasób Dashboard, potwierdź sprawdzenie i odśwież stronę. Istniejące karty i inne zasoby pozostają bez zmian. Dla zasobów YAML wykonaj ręczne kroki z README.
 
+## 4.3.1 (2026-11-26)
+
+- Informed administrators in Polish or English that the Dashboard listing would be removed after a transition period and succeeded by an Integration. The existing card and settings remain; the release stated that the date and migration instructions would be announced later. The notice can be dismissed locally in the browser.
+- Kept the existing Dashboard installation and Home Assistant 2024.1 minimum.
+
+
 ## 4.3.0 (2026-10-13)
 
 - Add explicit 7/30-day recorded history per device from Home Assistant Recorder, with source dates, retention/coverage caveats, missing sources and bounded reads. State history survives card recreation under HA retention rules.

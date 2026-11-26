@@ -87,6 +87,22 @@ of compatibility. Integration installation applies **after** the announced
 Dashboard transition period and availability in HACS; until then keep using the
 Dashboard release.
 
+**Planned transition:** After a transition period, the current Device Health
+Dashboard listing will be removed from the catalog. Its successor will be an
+Integration. For now, update the existing Dashboard card in HACS as usual; the
+card and its settings remain. Do not remove the card or install an integration
+for this transition now. Keep a backup of your dashboard configuration. The date
+and confirmed migration instructions will be announced later, before the change.
+
+**Planowana zmiana:** Po okresie przejściowym obecny wpis Device Health Dashboard
+zostanie wycofany z katalogu. Jego następcą będzie Integration. Na razie aktualizuj
+obecną kartę Dashboard w HACS jak zwykle; karta i jej ustawienia pozostają. Nie
+usuwaj teraz karty ani nie instaluj integracji na potrzeby tej zmiany. Zachowaj
+kopię konfiguracji pulpitu. Termin i potwierdzoną instrukcję migracji podamy
+później, przed zmianą.
+
+**Once the transition ends and Integration is available:**
+
 1. Install **Device Health** from HACS **Integration**, restart Home Assistant,
    then add **Device Health** under Settings → Devices & services.
 2. For a new installation, the integration registers its module in storage-mode
