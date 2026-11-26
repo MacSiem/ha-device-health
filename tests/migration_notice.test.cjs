@@ -13,11 +13,16 @@ function setup(language = 'en', is_admin = true) {
 }
 
 test('administrators see localized notice with installation link and viewer does not', () => {
-  for (const [lang, expected] of [['en', 'planned to move'], ['pl', 'Planowane jest przeniesienie']]) {
+  for (const [lang, expected] of [['en', 'Dashboard listing will be removed from the catalog'], ['pl', 'wpis Device Health Dashboard zostanie wycofany z katalogu']]) {
     const { dom, hass, mount } = setup(lang);
     try {
       const card = mount(); const notice = card.shadowRoot.querySelector('.migration-notice');
       assert.ok(notice.textContent.includes(expected));
+      for (const fragment of lang === 'pl'
+        ? ['okresie przejściowym', 'następcą będzie Integration', 'ustawienia pozostają', 'Termin i instrukcję migracji podamy później']
+        : ['transition period', 'successor will be an Integration', 'settings remain', 'date and migration instructions will be announced later']) {
+        assert.ok(notice.textContent.includes(fragment), fragment);
+      }
       assert.equal(notice.querySelector('a').getAttribute('href'), 'https://github.com/MacSiem/ha-device-health#installation');
       card.hass = { ...hass, user: { ...hass.user, is_admin: false } };
       assert.equal(card.shadowRoot.querySelector('.migration-notice'), null);

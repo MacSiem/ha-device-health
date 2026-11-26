@@ -2,9 +2,10 @@
 
 ## 4.3.1 (unreleased)
 
-- Show administrators a dismissible Polish or English notice about the planned
-  transition to an integration, with a link to installation information. The
-  dismissal is remembered locally in the browser.
+- Inform administrators in Polish or English that the Dashboard listing will be
+  removed after a transition period and succeeded by an Integration. Update the
+  current card as usual; its settings remain. The date and migration instructions
+  will be announced later. The notice can be dismissed locally in the browser.
 - Keep the existing Dashboard installation and Home Assistant 2024.1 minimum.
 
 ## 4.3.0 (2026-10-13)
