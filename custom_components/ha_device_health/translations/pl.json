@@ -2,6 +2,12 @@
   "config": {
     "abort": {
       "already_configured": "Device Health jest już skonfigurowany"
+    },
+    "step": {
+      "user": {
+        "title": "Device Health",
+        "description": "Dodaj Device Health do Home Assistant."
+      }
     }
   },
   "entity": {
