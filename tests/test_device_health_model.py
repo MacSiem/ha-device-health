@@ -26,3 +26,11 @@ def test_multiple_links_and_batteries_count_devices():
     states['sensor.one_battery'].attributes['unit_of_measurement'] = 'V'
     states['sensor.two_battery'].state = '21'
     assert model.classify({'d': object()}, entries, states) == (0, 0, False)
+
+
+def test_unregistered_battery_and_invalid_readings():
+    states = {'sensor.remote_battery': Obj(state='12', attributes={'unit_of_measurement': '%'}),
+              'sensor.voltage_battery': Obj(state='1', attributes={'unit_of_measurement': 'V'})}
+    assert model.classify({}, {}, states) == (None, 1, True)
+    states['sensor.remote_battery'].state = 'unknown'
+    assert model.classify({}, {}, states) == (None, None, None)
