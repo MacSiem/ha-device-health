@@ -7,9 +7,11 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import config_validation as cv
 from .const import CONF_GLOBAL_AGGREGATES, DOMAIN, SIGNAL
 from . import frontend, websocket_api
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = ["sensor", "binary_sensor"]
 _LOGGER = logging.getLogger(__name__)
 

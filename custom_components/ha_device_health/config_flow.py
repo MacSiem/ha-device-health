@@ -15,22 +15,26 @@ class DeviceHealthFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(config_entry):
-        return DeviceHealthOptionsFlow()
+        return DeviceHealthOptionsFlow(config_entry)
 
 
 class DeviceHealthOptionsFlow(OptionsFlow):
+    def __init__(self, config_entry):
+        # Use a separate attribute: newer HA exposes a read-only config_entry.
+        self._options_entry = config_entry
+
     async def async_step_init(self, user_input=None):
         # HA's options-flow HTTP endpoints require an authenticated admin on
         # both initiation and submission. HA does not pass an actor in context.
         if user_input is not None:
             return self.async_create_entry(title="", data={
-                **self.config_entry.options,
+                **self._options_entry.options,
                 CONF_GLOBAL_AGGREGATES: user_input[CONF_GLOBAL_AGGREGATES],
             })
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({vol.Required(
                 CONF_GLOBAL_AGGREGATES,
-                default=self.config_entry.options.get(CONF_GLOBAL_AGGREGATES) is True,
+                default=self._options_entry.options.get(CONF_GLOBAL_AGGREGATES) is True,
             ): bool}),
         )

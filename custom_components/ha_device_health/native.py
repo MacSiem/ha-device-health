@@ -22,7 +22,7 @@ class Aggregate:
 
     def values(self):
         return classify(
-            {item.id: item for item in dr.async_get(self.hass).devices},
+            {item.id: item for item in dr.async_get(self.hass).devices.values()},
             {item.entity_id: item for item in er.async_get(self.hass).entities.values()},
             {state.entity_id: state for state in self.hass.states.async_all()},
         )
