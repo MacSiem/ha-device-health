@@ -58,6 +58,14 @@ async def main():
                         result = await ws.receive_json()
                         if result.get('id') == sequence:
                             return result
+                resources = await command('lovelace/resources/list')
+                assert resources['success'], resources
+                owned_resources = [item for item in resources['result'] if 'ha-device-health.js' in item['url']]
+                assert len(owned_resources) == 1 and owned_resources[0]['url'].startswith('/ha_device_health/'), resources
+                async with session.get(BASE + owned_resources[0]['url']) as response:
+                    assert response.status == 200, response.status
+                    served = await response.read()
+                assert served == Path('/source/integration/www/ha-device-health.js').read_bytes()
                 for _ in range(30):
                     states = (await command('get_states'))['result']
                     found = {x['entity_id']: x['state'] for x in states if x['entity_id'].startswith(('sensor.device_health_', 'binary_sensor.device_health_'))}
@@ -80,6 +88,16 @@ async def main():
                 await request('POST', f'/api/config/config_entries/entry/{entry_id}/reload', headers=headers)
                 get = await command('ha_device_health/policy/get', entry_id=entry_id)
                 assert get['success'] and get['result']['policy'] == policy and get['result']['revision'] == 1, get
+                resources = await command('lovelace/resources/list')
+                ours = [item for item in resources['result'] if 'ha-device-health.js' in item['url']]
+                assert len(ours) == 1, resources
+                edited = await command('lovelace/resources/update', resource_id=ours[0]['id'], url='/local/community/ha-device-health/ha-device-health.js', res_type='module')
+                assert edited['success'], edited
+                await request('POST', f'/api/config/config_entries/entry/{entry_id}/reload', headers=headers)
+                resources = await command('lovelace/resources/list')
+                ours = [item for item in resources['result'] if 'ha-device-health.js' in item['url']]
+                assert len(ours) == 1 and ours[0]['url'] == '/local/community/ha-device-health/ha-device-health.js', resources
+
                 fixture = await request('POST', '/api/config/config_entries/flow', json={'handler': 'device_health_fixture'}, headers=headers)
                 assert fixture['type'] == 'create_entry', fixture
                 for _ in range(10):

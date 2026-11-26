@@ -10,6 +10,9 @@
   "integration_type": "service",
   "iot_class": "calculated",
   "dependencies": [
+    "frontend",
+    "http",
+    "lovelace",
     "websocket_api"
   ],
   "requirements": [],
