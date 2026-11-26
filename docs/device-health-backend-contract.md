@@ -6,7 +6,7 @@ The singleton config entry exposes offline devices, devices with battery at or b
 
 WebSocket: `ha_device_health/capabilities` takes `entry_id`; `policy/get` and `policy/set` take `entry_id`, with `policy/set` additionally taking `policy` and the last `revision`. The schema follows `feature_access.py`. Admin manages policy; capability results also require HA all-entity read/control permissions. An optimistic revision prevents stale writes. Policy is private and removed with the entry. The API is a capability contract only: current Dashboard 4.3.0 has no policy enforcement and does not consume it. Native aggregate entities are global HA state and cannot enforce per-user visibility or source permissions; use HA's own entity permissions. They do not provide per-user filtered aggregates. No service or action is exposed by this component.
 
-Integration remains incomplete until the frontend enforces the capability contract at every read/action and validates native permissions for the actual target; verify HA permission changes and deny stale in-flight operations. Dashboard-only users retain existing behavior until that integration. Test on a disposable HA instance before using or distributing the candidate.
+The integrated card uses the capability contract. Release qualification must verify enforcement at every read/action, HA permission changes and stale in-flight operations. Dashboard 4.3.0 does not consume this contract. Test the exact candidate and installed resource on a disposable HA instance before distribution.
 
 `ha_device_health/access` resolves the singleton without an entry ID. It returns `status` (`active` or `absent`), `revision` (null when absent), `features`, and `can_manage`; only admins receive `entry_id`. `ha_device_health/access/subscribe` emits only `{"changed": true}` to still-active authenticated subscribers when configuration, unload or policy changes; clients must call `access` again. User permissions can change outside this integration, so clients must re-read on reconnect, context change and before operations; subscription does not claim to detect every HA permission change.
 
@@ -55,7 +55,7 @@ recorded history include measurements from all sources; granting access to an
 aggregate can reveal facts about sources the same user cannot read. Card policy
 does not govern native state, Recorder, REST, or another dashboard. Administrators
 must restrict access to all three aggregate entities and their history to users
-authorized to see the underlying population. This is a deployment requirement,
+authorized to see the underlying population; standard HA household roles may grant broad entity access, and HA does not automatically couple aggregate access to its sources. This is a deployment requirement,
 not a per-user guarantee. A policy change cannot retract previously recorded
 history. A future per-user projection must filter the actual source entities
 with current HA permissions on every read and invalidate on access changes; it
