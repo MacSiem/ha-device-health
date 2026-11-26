@@ -63,6 +63,8 @@ async def main():
                     await asyncio.sleep(1)
                 assert len(found) == 3, found
                 assert all(value == 'unknown' for value in found.values()), found
+                access = await command('ha_device_health/access')
+                assert access['success'] and access['result']['entry_id'] == entry_id and access['result']['status'] == 'active', access
                 caps = await command('ha_device_health/capabilities', entry_id=entry_id)
                 assert caps['success'] and caps['result']['can_manage'], caps
                 get = await command('ha_device_health/policy/get', entry_id=entry_id)
@@ -72,8 +74,7 @@ async def main():
                 assert put['success'] and put['result']['revision'] == 1, put
                 conflict = await command('ha_device_health/policy/set', entry_id=entry_id, policy=policy, revision=0)
                 assert not conflict['success'] and conflict['error']['code'] == 'conflict', conflict
-                reload_result = await command('config_entries/reload', entry_id=entry_id)
-                assert reload_result['success'], reload_result
+                await request('POST', f'/api/config/config_entries/entry/{entry_id}/reload', headers=headers)
                 get = await command('ha_device_health/policy/get', entry_id=entry_id)
                 assert get['success'] and get['result']['policy'] == policy and get['result']['revision'] == 1, get
                 print('PASS: config flow, native unknown states, direct WS, policy revision/conflict and reload persistence', flush=True)
