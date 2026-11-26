@@ -1094,6 +1094,23 @@ function createDashboardPlacementV53({host, getHass, getCardConfig,
     if (!current(s, intent)) throw Error('cancelled');
     return value;
   }
+  async function authorizeWrite(s, intent) {
+    if (!current(s, intent)) return false;
+    const hass = getHass();
+    if (hass?.user?.is_admin !== true || hass.user.is_active === false) return false;
+    if (!Array.isArray(hass.config?.components) || !hass.config.components.includes('ha_device_health')) return true;
+    let timer;
+    try {
+      const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(Error('access_timeout')), 5000); });
+      const access = await Promise.race([hass.callWS({type:'ha_device_health/access'}), deadline]);
+      if (!current(s, intent)) return false;
+      if (access?.status === 'absent') return true;
+      const diagnostics = access?.features?.diagnostics, actions = access?.features?.actions;
+      return access?.status === 'active' && diagnostics?.visible === true && diagnostics?.read === true &&
+        actions?.visible === true && actions?.read === true && actions?.execute === true;
+    } catch (_) { return false; }
+    finally { clearTimeout(timer); }
+  }
   function read(s, intent) { return call(s, intent, 'lovelace/config', {force:true}); }
   function validateConfig(config) {
     if (!object(config) || !Array.isArray(config.views) && !object(config.strategy)) throw Error('invalid_config');
@@ -1196,6 +1213,8 @@ function createDashboardPlacementV53({host, getHass, getCardConfig,
         const latest = validateConfig(await read(s, intent));
         if (!current(s, intent)) return;
         if (key(latest) !== key(expectedCurrent)) { s.blocked = true; s.tx = null; s.status = 'conflict'; return; }
+        if (!await authorizeWrite(s, intent)) { if (current(s, intent)) close(); return; }
+        if (!current(s, intent)) return;
         // Private backup is detached and bound to this session's user,
         // connection and target. No persistent storage or exports.
         s.tx = {before, expected, confirmed:null, undoing}; s.blocked = true;
@@ -1936,6 +1955,7 @@ class HADeviceHealth extends HTMLElement {
     if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
     this._backgroundAlertDialog = null;
     this._backgroundAlertResult = null;
+    this._dashboardPlacementV53?.close();
     this._registryEpoch++;
     this._registryLoading = null;
     this._registryLoadedAt = 0;
@@ -5068,6 +5088,8 @@ ${_FAMILY_RECORD_CSS}
   }
   _placementAllowedV53() {
     if (!this.isConnected || this.preview || this._hass?.user?.is_admin !== true) return false;
+    if (!this._canAccess('diagnostics', 'visible') || !this._canAccess('diagnostics', 'read') ||
+        !this._canAccess('actions', 'visible') || !this._canAccess('actions', 'read') || !this._canAccess('actions', 'execute')) return false;
     const h=this._hass;
     if (!h?.user?.id || h.user.is_active===false || !h.connection || h.connection.connected===false || h.connected===false || navigator.onLine===false || typeof h.callWS!=='function') return false;
     if (!this._placementGuardV53) return true;

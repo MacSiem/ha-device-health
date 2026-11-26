@@ -103,3 +103,20 @@ test('foreign JSON key reordering is conservatively protected before add and und
  const y=setup(original);try{await y.open();y.q('[data-add]').click();await flush();const before=JSON.stringify(y.stored);y.q('[data-undo]').click();await flush();assert.equal(JSON.stringify(y.stored),JSON.stringify(original));assert.notEqual(before,JSON.stringify(original));}finally{y.done();}
  const z=setup(original);try{await z.open();z.q('[data-add]').click();await flush();const saved=z.stored;z.stored={unknown:saved.unknown,title:saved.title,views:saved.views};z.q('[data-undo]').click();await flush();assert.equal(saves(z).length,1);assert.match(z.q('[role=status]').textContent,/changed/i);}finally{z.done();}
 });
+
+test('fresh feature policy denies dashboard save after preview',async()=>{
+ const x=setup();try {
+  await x.open();x.hass.config={components:['ha_device_health']};
+  x.hook=m=>m.type==='ha_device_health/access'?Promise.resolve({status:'active',features:{diagnostics:{visible:true,read:true},actions:{visible:true,read:true,execute:false}}}):undefined;
+  x.q('[data-add]').click();await flush();assert.equal(saves(x).length,0);assert.equal(x.calls.at(-1).type,'ha_device_health/access');
+ }finally{x.done();}
+});
+test('admin role loss during policy check prevents dashboard save',async()=>{
+ const x=setup(),access=deferred();try {
+  await x.open();x.hass.config={components:['ha_device_health']};
+  x.hook=m=>m.type==='ha_device_health/access'?access.promise:undefined;
+  x.q('[data-add]').click();await flush();x.hass.user.is_admin=false;
+  access.resolve({status:'active',features:{diagnostics:{visible:true,read:true},actions:{visible:true,read:true,execute:true}}});
+  await flush();assert.equal(saves(x).length,0);
+ }finally{x.done();}
+});
