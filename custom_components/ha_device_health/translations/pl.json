@@ -1,0 +1,1 @@
+{"config":{"abort":{"already_configured":"Device Health jest już skonfigurowany"}},"entity":{"sensor":{"offline":{"name":"Urządzenia offline"},"low_battery":{"name":"Urządzenia z niską baterią"}},"binary_sensor":{"problem":{"name":"Problem"}}}}
