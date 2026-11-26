@@ -159,8 +159,10 @@ async def main():
                         if result.get('id') == msg['id']:
                             return result
                 async with contextlib.AsyncExitStack() as stack:
-                    ordinary = await stack.enter_async_context(await role('ordinary'))
-                    restricted = await stack.enter_async_context(await role('restricted'))
+                    ordinary = await role('ordinary')
+                    stack.push_async_callback(ordinary.close)
+                    restricted = await role('restricted')
+                    stack.push_async_callback(restricted.close)
                     ordinary_access = await child_command(ordinary, {'id': 1, 'type': 'ha_device_health/access'})
                     assert ordinary_access['success'] and ordinary_access['result']['features']['diagnostics']['read'] is False and 'entry_id' not in ordinary_access['result'], ordinary_access
                     restricted_access = await child_command(restricted, {'id': 1, 'type': 'ha_device_health/access'})
