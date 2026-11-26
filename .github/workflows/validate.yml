@@ -12,6 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Frontend resource ownership
+        run: python3 -m unittest discover -s tests -p test_frontend_delivery.py -v
+      - name: Check bundled card matches dashboard card
+        run: node scripts/sync-card.mjs --check
       - name: JS syntax (node --check)
         run: |
           fail=0
