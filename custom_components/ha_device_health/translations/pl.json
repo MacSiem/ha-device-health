@@ -28,9 +28,6 @@
           "global_aggregates": "Publikuj globalne agregaty i statystyki Recorder"
         }
       }
-    },
-    "abort": {
-      "admin_required": "Zmianę może wykonać tylko aktywny administrator."
     }
   }
 }
