@@ -21,4 +21,8 @@ class Aggregate:
         self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL, self.async_write_ha_state))
 
     def values(self):
-        return classify(dr.async_get(self.hass).devices, er.async_get(self.hass).entities, {s.entity_id: s for s in self.hass.states.async_all()})
+        return classify(
+            {item.id: item for item in dr.async_get(self.hass).devices.values()},
+            {item.entity_id: item for item in er.async_get(self.hass).entities.values()},
+            {state.entity_id: state for state in self.hass.states.async_all()},
+        )

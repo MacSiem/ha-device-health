@@ -1,5 +1,6 @@
 """Device Health lifecycle."""
 from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
@@ -16,6 +17,7 @@ async def async_setup(hass, config):
 async def async_setup_entry(hass, entry):
     store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.access", private=True, atomic_writes=True)
     hass.data[DOMAIN][entry.entry_id] = {"store": store}
+    @callback
     def changed(event):
         if event.event_type == EVENT_STATE_CHANGED:
             entity_id = event.data.get("entity_id", "")
