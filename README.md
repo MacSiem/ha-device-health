@@ -82,8 +82,15 @@ remain unknown and do not become a zero signal value.
 Requires Home Assistant 2024.1 or later.
 
 **Planned transition:** Device Health is planned to move to an integration in a
-future release. The current Dashboard card remains supported. Migration
-instructions will be published here before the change; no action is needed now.
+future release. For now, update the existing Dashboard card in HACS as usual.
+Do not remove the card or install an integration for this transition now. Keep a
+backup of your dashboard configuration. Once the future migration procedure is
+confirmed, it will be published here before the change.
+
+**Planowana zmiana:** W przyszłości Device Health ma przejść do integracji. Na
+razie aktualizuj obecną kartę Dashboard w HACS jak zwykle. Nie usuwaj teraz karty
+ani nie instaluj integracji na potrzeby tej zmiany. Zachowaj kopię konfiguracji
+pulpitu. Potwierdzoną procedurę migracji opublikujemy tutaj przed zmianą.
 
 1. Open HACS and search for **Device Health** under **Dashboard**.
 2. Download the card and reload the browser when HACS prompts you.

@@ -1,6 +1,6 @@
 # Changelog — Device Health
 
-## Unreleased
+## 4.3.1 (unreleased)
 
 - Show administrators a dismissible Polish or English notice about the planned
   transition to an integration, with a link to installation information. The

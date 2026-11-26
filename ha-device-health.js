@@ -1,4 +1,4 @@
-/* HA Tools split — ha-device-health v4.3.0 (2026-10-13) — single-tool standalone repo */
+/* HA Tools split — ha-device-health v4.3.1 — single-tool standalone repo */
 (function() {
 'use strict';
 
