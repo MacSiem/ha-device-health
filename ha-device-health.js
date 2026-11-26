@@ -1354,6 +1354,13 @@ class HADeviceHealth extends HTMLElement {
     this._toolId = this.tagName.toLowerCase().replace('ha-', '');
     this._config = { ...HADeviceHealth.getStubConfig(), variant: "full" };
     this._hass = null;
+    this._accessMode = 'legacy';
+    this._access = null;
+    this._accessEpoch = 0;
+    this._accessSession = null;
+    this._accessUnsubscribe = null;
+    this._accessPolicy = null;
+    this._accessPolicyError = '';
     this._entityRegistry = new Map();
     this._deviceRegistry = new Map();
     this._registryLoading = null;
@@ -1406,11 +1413,16 @@ class HADeviceHealth extends HTMLElement {
       this._historyConnectionReady = this._hass?.connection?.connected === true;
       this._cancelDeviceHistory('not_checked');
       this._historyConnected = this._hass?.connection?.connected === true;
+      if (this._accessMode !== 'legacy') {
+        this._invalidateAccess('pending');
+        this._subscribeAccess();
+      }
       if (this.isConnected) this._render();
     };
     this._historyDisconnectHandler = () => {
       this._historyConnectionReady = false;
       this._cancelDeviceHistory('offline');
+      if (this._accessMode !== 'legacy') this._invalidateAccess('error');
       if (this.isConnected) this._render();
     };
     this._historyOnlineHandler = () => {
@@ -1767,7 +1779,12 @@ class HADeviceHealth extends HTMLElement {
     this._placementGuardV53?.observe(hass);
     this._dashboardPlacementV53?.update();
     if (hass?.user?.is_admin !== true) this.shadowRoot.querySelector('[data-device-dashboard-footer]')?.remove();
+    this._syncAccess(registrySession);
     const historyContextChanged = this._syncHistoryContext();
+    if (!this._canAccess('diagnostics', 'visible') || !this._canAccess('diagnostics', 'read')) {
+      this._render();
+      return;
+    }
     this._loadRegistries();
     this._subscribeRegistryUpdates();
     if (haToolsPersistence) haToolsPersistence.setHass(hass);
@@ -1819,11 +1836,177 @@ class HADeviceHealth extends HTMLElement {
   // Same session/epoch pattern as Network Map; this plugin reads native HA
   // registries rather than the integration's list_devices endpoint.
   _readSession(hass = this._hass) {
-    return { connection: hass?.connection, userId: hass?.user?.id, admin: hass?.user?.is_admin, instance: hass?.config?.instance_id };
+    return { connection: hass?.connection, userId: hass?.user?.id, admin: hass?.user?.is_admin, active: hass?.user?.is_active, groups: JSON.stringify(hass?.user?.group_ids || []), instance: hass?.config?.instance_id };
   }
 
   _sameReadSession(a, b) {
-    return a.connection === b.connection && a.userId === b.userId && a.admin === b.admin && a.instance === b.instance;
+    return a.connection === b.connection && a.userId === b.userId && a.admin === b.admin && a.active === b.active && a.groups === b.groups && a.instance === b.instance;
+  }
+
+  _syncAccess(session) {
+    const components = this._hass?.config?.components;
+    const active = Array.isArray(components) ? components.includes('ha_device_health') : this._accessMode !== 'legacy';
+    const changed = !this._accessSession || !this._sameReadSession(this._accessSession, session);
+    this._accessSession = session;
+    if (!active) {
+      if (this._accessMode !== 'legacy') this._invalidateAccess('legacy');
+      return;
+    }
+    if (changed || this._accessMode === 'legacy') {
+      this._invalidateAccess('pending');
+      this._subscribeAccess();
+    }
+  }
+
+  async _subscribeAccess() {
+    const connection = this._hass?.connection, session = this._readSession(), epoch = this._accessEpoch;
+    try {
+      if (!this.isConnected || connection?.connected !== true || typeof connection.subscribeMessage !== 'function') throw new Error('offline');
+      const unsubscribe = await connection.subscribeMessage(() => {
+        if (!this.isConnected || !this._sameReadSession(session, this._readSession())) return;
+        this._invalidateAccess('pending', false);
+        this._render();
+        this._refreshAccess();
+      }, {type:'ha_device_health/access/subscribe'});
+      if (!this.isConnected || epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) { unsubscribe(); return; }
+      this._accessUnsubscribe = unsubscribe;
+      await this._refreshAccess();
+    } catch (_) {
+      if (epoch === this._accessEpoch && this._sameReadSession(session, this._readSession())) {
+        this._invalidateAccess('error');
+        this._render();
+      }
+    }
+  }
+
+  _invalidateAccess(mode = 'pending', unsubscribe = true) {
+    this._accessEpoch++;
+    if (unsubscribe && this._accessUnsubscribe) this._accessUnsubscribe();
+    if (unsubscribe) this._accessUnsubscribe = null;
+    this._accessMode = mode;
+    this._access = null;
+    this._accessPolicy = null;
+    this._cancelDeviceHistory('denied', true);
+    if (this._backgroundAutomationOperation) this._backgroundAutomationOperation.cancelled = true;
+    this._backgroundAlertDialog = null;
+    this._backgroundAlertResult = null;
+    this._registryEpoch++;
+    this._registryLoading = null;
+    this._registryLoadedAt = 0;
+    this._entityRegistry.clear();
+    this._deviceRegistry.clear();
+    this._alerts = [];
+    this._alertHistory = [];
+    this._alertEpisodes.clear();
+    this._acknowledgedAlerts.clear();
+  }
+
+  _canAccess(feature, operation) {
+    if (this._accessMode === 'legacy' || this._accessMode === 'absent') return true;
+    return this._accessMode === 'ready' && this._access?.features?.[feature]?.[operation] === true;
+  }
+
+  async _refreshAccess() {
+    if (this._accessMode === 'legacy' || this._accessMode === 'absent') return true;
+    const hass = this._hass, session = this._readSession(hass), epoch = this._accessEpoch;
+    try {
+      const access = await hass.callWS({ type: 'ha_device_health/access' });
+      if (!this.isConnected || epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) return false;
+      if (access?.status === 'absent') {
+        this._access = null;
+        this._accessMode = 'absent';
+        this._loadRegistries();
+        this._render();
+        return true;
+      }
+      if (access?.status !== 'active' || !access.features || !Number.isInteger(access.revision)) throw new Error('invalid_access');
+      const oldAccess = this._access;
+      if (oldAccess && (oldAccess.revision !== access.revision || JSON.stringify(oldAccess.features) !== JSON.stringify(access.features))) {
+        this._invalidateAccess('pending', false);
+      }
+      this._access = access;
+      this._accessMode = 'ready';
+      if (this._canAccess('diagnostics', 'visible') && this._canAccess('diagnostics', 'read')) this._loadRegistries();
+      this._render();
+      return true;
+    } catch (_) {
+      if (epoch === this._accessEpoch && this._sameReadSession(session, this._readSession())) {
+        this._invalidateAccess('error');
+        this._render();
+      }
+      return false;
+    }
+  }
+
+  _renderAccessManagement() {
+    if (this._accessMode !== 'ready' || this._access?.can_manage !== true || this._hass?.user?.is_admin !== true || !this._access.entry_id) return '';
+    const pl = this._lang === 'pl';
+    if (!this._accessPolicy) return `<button type="button" class="access-manage">${pl ? 'Dostęp do funkcji' : 'Feature access'}</button>${this._accessPolicyError ? `<p role="alert">${_esc(this._accessPolicyError)}</p>` : ''}`;
+    const names = pl ? {diagnostics:'Diagnostyka',history:'Historia',actions:'Akcje',visible:'Widoczność',read:'Odczyt',execute:'Wykonanie',inherit:'Domyślne',household:'Domownicy',admin:'Administratorzy',selected_users:'Wybrani użytkownicy'} : {diagnostics:'Diagnostics',history:'History',actions:'Actions',visible:'Visibility',read:'Read',execute:'Execute',inherit:'Default',household:'Household',admin:'Administrators',selected_users:'Selected users'};
+    const operations = {diagnostics:['visible','read'],history:['visible','read'],actions:['visible','read','execute']};
+    const rows = Object.entries(operations).flatMap(([feature, types]) => types.map(operation => {
+      const rule = this._accessPolicy.policy.features?.[feature]?.[operation] || {mode:'inherit'};
+      const id = `${feature}-${operation}`;
+      return `<label>${names[feature]} · ${names[operation]} <select data-access-rule="${id}">${['inherit','household','admin','selected_users'].map(mode=>`<option value="${mode}" ${rule.mode === mode ? 'selected' : ''}>${names[mode]}</option>`).join('')}</select><span>${pl ? 'Identyfikatory użytkowników, po jednym w wierszu' : 'User IDs, one per line'}</span><textarea data-access-users="${id}" rows="2">${_esc((rule.user_ids || []).join('\n'))}</textarea></label>`;
+    })).join('');
+    return `<section class="access-policy"><h3>${pl ? 'Dostęp do funkcji' : 'Feature access'}</h3><p>${pl ? 'Ograniczenia działają w ramach uprawnień Home Assistant.' : 'Restrictions apply within Home Assistant permissions.'}</p><div class="access-policy-rows">${rows}</div>${this._accessPolicyError ? `<p role="alert">${_esc(this._accessPolicyError)}</p>` : ''}<button type="button" class="access-save">${pl ? 'Zapisz' : 'Save'}</button><button type="button" class="access-cancel">${pl ? 'Anuluj' : 'Cancel'}</button></section>`;
+  }
+
+  _bindAccessManagement() {
+    this.shadowRoot.querySelector('.access-manage')?.addEventListener('click', () => this._openAccessManagement());
+    this.shadowRoot.querySelector('.access-cancel')?.addEventListener('click', () => { this._accessPolicy = null; this._accessPolicyError = ''; this._render(); });
+    this.shadowRoot.querySelector('.access-save')?.addEventListener('click', () => this._saveAccessManagement());
+  }
+
+  async _openAccessManagement() {
+    const hass = this._hass, session = this._readSession(), epoch = this._accessEpoch, entryId = this._access?.entry_id;
+    if (hass?.user?.is_admin !== true || this._access?.can_manage !== true || !entryId) return;
+    try {
+      const result = await hass.callWS({type:'ha_device_health/policy/get', entry_id:entryId});
+      if (epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) return;
+      if (!result?.policy?.features || !Number.isInteger(result.revision)) throw new Error('invalid_policy');
+      this._accessPolicy = result;
+      this._accessPolicyError = '';
+    } catch (_) {
+      if (epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) return;
+      this._accessPolicyError = this._lang === 'pl' ? 'Nie udało się odczytać ustawień dostępu.' : 'Could not read access settings.';
+    }
+    this._render();
+  }
+
+  async _saveAccessManagement() {
+    const hass = this._hass, session = this._readSession(), epoch = this._accessEpoch, entryId = this._access?.entry_id;
+    if (hass?.user?.is_admin !== true || this._access?.can_manage !== true || !entryId || !this._accessPolicy) return;
+    const features = {};
+    for (const select of this.shadowRoot.querySelectorAll('[data-access-rule]')) {
+      const [feature, operation] = select.dataset.accessRule.split('-');
+      const rule = {mode:select.value};
+      if (rule.mode === 'selected_users') rule.user_ids = this.shadowRoot.querySelector(`[data-access-users="${select.dataset.accessRule}"]`).value.split('\n').map(id=>id.trim()).filter(Boolean);
+      (features[feature] ||= {})[operation] = rule;
+    }
+    try {
+      await hass.callWS({type:'ha_device_health/policy/set',entry_id:entryId,revision:this._accessPolicy.revision,policy:{schema:1,features}});
+      if (epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) return;
+      this._invalidateAccess('pending', false);
+      await this._refreshAccess();
+    } catch (_) {
+      if (epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) return;
+      this._accessPolicyError = this._lang === 'pl' ? 'Nie zapisano ustawień. Sprawdź uprawnienia i odczytaj aktualne ustawienia ponownie.' : 'Settings were not saved. Check permissions and reload the current settings.';
+      this._accessPolicy = null;
+      this._render();
+    }
+  }
+
+  _renderAccessOnly() {
+    const pl = this._lang === 'pl';
+    const text = this._accessMode === 'pending' ? (pl ? 'Sprawdzanie dostępu…' : 'Checking access…') : (pl ? 'Dostęp do diagnostyki jest niedostępny.' : 'Diagnostics access is unavailable.');
+    this.shadowRoot.innerHTML = `<style>:host{display:block;color:var(--primary-text-color)}.access-container{padding:16px;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:12px}button,select,textarea{font:inherit;min-height:44px}label{display:grid;gap:4px;margin:12px 0}textarea{width:100%;box-sizing:border-box}</style><div class="access-container" role="status">${_esc(text)} ${this._accessMode === 'error' ? `<button class="access-retry">${pl ? 'Ponów' : 'Retry'}</button>` : ''} ${this._renderAccessManagement()}</div>`;
+    this.shadowRoot.querySelector('.access-retry')?.addEventListener('click', () => {
+      this._invalidateAccess('pending');
+      this._render();
+      this._subscribeAccess();
+    });
+    this._bindAccessManagement();
   }
 
   _stopRegistryUpdates() {
@@ -1854,6 +2037,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _loadRegistries(explicitRetry = false) {
+    if (!this._canAccess('diagnostics', 'visible') || !this._canAccess('diagnostics', 'read')) return;
     if (!this._hass?.callWS || this._registryLoading) return;
     if (!explicitRetry && (Date.now() < this._registryRetryAt || Date.now() - this._registryLoadedAt < 300000)) return;
     const hass = this._hass;
@@ -2022,6 +2206,7 @@ class HADeviceHealth extends HTMLElement {
 
   _historySupportState() {
     const hass = this._hass;
+    if (!this._canAccess('history', 'visible') || !this._canAccess('history', 'read')) return 'denied';
     if (!hass?.user?.id || hass.user.is_active === false) return 'denied';
     if (!this.isConnected || !this._historyBrowserOnline || navigator.onLine === false || hass.connection?.connected !== true || this._historyConnectionReady !== true) return 'offline';
     if (typeof hass.callWS !== 'function' || this._registryStatus !== 'ready') return 'unsupported';
@@ -2142,7 +2327,8 @@ class HADeviceHealth extends HTMLElement {
     this._historyAttempt = {...scope,visible:members.visible,all:members.all};
     this._historyState = 'loading'; this._historyStale = Boolean(this._historyResult); this._historyProgress = null;
     const current = () => this.isConnected && this._hass?.connection === connection && connection.connected === true &&
-      this._historyBrowserOnline && this._historyConnectionReady === true && navigator.onLine !== false && epoch === this._historyEpoch && key === this._historyContextKey();
+      this._historyBrowserOnline && this._historyConnectionReady === true && navigator.onLine !== false && epoch === this._historyEpoch && key === this._historyContextKey() &&
+      this._canAccess('history', 'visible') && this._canAccess('history', 'read');
     this._historyTimer = setTimeout(() => {
       if (current()) {
         if (this._historyProgress?.rows.length) this._historyResult = {...this._historyProgress,capped:true,readFailure:'timeout'};
@@ -2153,10 +2339,12 @@ class HADeviceHealth extends HTMLElement {
       const merged = Object.fromEntries(members.ids.map(id => [id, []]));
       let count = 0, queries = 0, rejected = 0, result;
       for (let cursor = start; cursor < end; cursor += 86400000) {
+        if (this._accessMode !== 'legacy' && !await this._refreshAccess()) return;
         if (!current()) return;
         const response = await hass.callWS({type:'history/history_during_period',start_time:new Date(cursor-1).toISOString(),
           end_time:new Date(Math.min(end,cursor+86400000)).toISOString(),entity_ids:members.ids,
           include_start_time_state:false,significant_changes_only:false,minimal_response:false,no_attributes:false});
+        if (this._accessMode !== 'legacy' && !await this._refreshAccess()) return;
         if (!current()) return;
         if (!response || typeof response !== 'object' || Array.isArray(response)) throw new Error('invalid_history_shape');
         queries++;
@@ -2221,6 +2409,8 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _renderDeviceHistory() {
+    if (!this._canAccess('history', 'visible')) return '';
+    if (!this._canAccess('history', 'read')) return `<section class="device-history" role="status">${this._ht('denied')}</section>`;
     const ui = createUiV3({language:this._lang});
     const result = this._historyResult, scope = result || this._historyAttempt;
     const code = this._historyState === 'loaded' ? 'success' : this._historyState === 'partial' ? 'partial'
@@ -2936,6 +3126,8 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _renderBackgroundAlertsSection() {
+    if (!this._canAccess('actions', 'visible')) return '';
+    if (!this._canAccess('actions', 'read')) return `<div role="status">${this._ht('denied')}</div>`;
     const batteryStatus = this._getBackgroundAutomationStatus("automation.ha_device_health_battery_alert");
     const offlineStatus = this._getBackgroundAutomationStatus("automation.ha_device_health_offline_alert");
     const resultHtml = this._hass?.user?.is_admin === true && this._backgroundAlertResult ? `
@@ -2951,7 +3143,7 @@ class HADeviceHealth extends HTMLElement {
             <div class="background-alerts-title">${this._t('backgroundAlerts')}</div>
             <div class="background-alerts-note">${this._t('backgroundNote')}</div>
           </div>
-          ${this._hass?.user?.is_admin === true ? `<button class="background-alerts-generate">${this._t('generateAutomations')}</button>` : ""}
+          ${this._hass?.user?.is_admin === true && this._canAccess('actions', 'execute') ? `<button class="background-alerts-generate">${this._t('generateAutomations')}</button>` : ""}
         </div>
         <div class="background-alerts-status">
           <div><strong>${this._t('battery')}:</strong> ${_esc(batteryStatus)}</div>
@@ -3021,7 +3213,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _openBackgroundAutomationDialog() {
-    if (this._hass?.user?.is_admin !== true || this._backgroundAutomationOperation) return;
+    if (this._hass?.user?.is_admin !== true || !this._canAccess('actions', 'visible') || !this._canAccess('actions', 'read') || !this._canAccess('actions', 'execute') || this._backgroundAutomationOperation) return;
     try {
       if (!this._hass || !this._hass.states) {
         this._backgroundAlertDialog = {
@@ -3045,7 +3237,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   async _createBackgroundAlertAutomations() {
-    if (this._backgroundAutomationOperation || this._hass?.user?.is_admin !== true || !this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
+    if (this._backgroundAutomationOperation || this._hass?.user?.is_admin !== true || !this._canAccess('actions', 'execute') || !this._backgroundAlertDialog || this._backgroundAlertDialog.errors?.length) return;
 
     const dialog = {
       ...this._backgroundAlertDialog,
@@ -3061,12 +3253,14 @@ class HADeviceHealth extends HTMLElement {
     const isCurrent = () => this._backgroundAutomationOperation === operation
       && !operation.cancelled && this._backgroundAlertDialog === dialog
       && this._sameReadSession(operation.session, this._readSession())
+      && this._canAccess('actions', 'visible') && this._canAccess('actions', 'read') && this._canAccess('actions', 'execute')
       && this._hass?.user?.is_admin === true && this._hass.user.id === operation.userId;
     this._render();
 
     try {
       const results = [];
       for (const automation of dialog.automations) {
+        if (this._accessMode !== 'legacy' && !await this._refreshAccess()) return;
         if (!isCurrent()) return;
         const existed = Boolean(this._hass?.states?.[automation.entityId]);
         try {
@@ -3095,6 +3289,7 @@ class HADeviceHealth extends HTMLElement {
 
       let reload = null;
       if (results.some((result) => result.ok)) {
+        if (this._accessMode !== 'legacy' && !await this._refreshAccess()) return;
         if (!isCurrent()) return;
         try {
           await this._hass.callService('automation', 'reload', {}, undefined, false);
@@ -3145,6 +3340,11 @@ class HADeviceHealth extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
+    if (!this._canAccess('diagnostics', 'visible') || !this._canAccess('diagnostics', 'read')) {
+      this._dashboardPlacementV53?.close();
+      this._renderAccessOnly();
+      return;
+    }
     if (["tile", "compact"].includes(this._config.variant) && !this._simpleExpanded) { this._dashboardPlacementV53?.close(); this._renderSimple(); return; }
     const familyFocus = _rememberFamilyFocus(this);
     const recordFocus = _rememberFamilyRecords(this);
@@ -3969,6 +4169,7 @@ class HADeviceHealth extends HTMLElement {
     let html = `
       <div class="card">
         <div class="card-header">${_esc(this._config.title ?? this._t('deviceHealth'))}${this._simpleExpanded ? `<button type="button" class="simple-close">${this._lang==='pl'?'Wróć':'Back'}</button>` : ''}</div>
+        ${this._renderAccessManagement()}
         <div class="tabs">
           ${this._visibleTabs().map(tab=>`<button class="tab-btn ${this._activeTab===tab?'active':''}" data-tab="${tab}">${this._t(tab)}</button>`).join('')}
         
@@ -4250,7 +4451,7 @@ class HADeviceHealth extends HTMLElement {
           <div class="stats" aria-live="polite" aria-atomic="true">
             ${this._t('activeAlerts')}: ${this._registryIdentityUnknown() ? '—' : visibleAlerts.length}
           </div>
-          ${this._lastHiddenAlert ? `<div role="status">${this._lang === "pl" ? "Alert ukryty" : "Alert hidden"} <button type="button" class="alert-undo">${this._lang === "pl" ? "Cofnij" : "Undo"}</button></div>` : ""}
+          ${this._lastHiddenAlert && this._canAccess('actions', 'visible') && this._canAccess('actions', 'read') && this._canAccess('actions', 'execute') ? `<div role="status">${this._lang === "pl" ? "Alert ukryty" : "Alert hidden"} <button type="button" class="alert-undo">${this._lang === "pl" ? "Cofnij" : "Undo"}</button></div>` : ""}
           ${this._renderBackgroundAlertsSection()}
       `;
 
@@ -4267,7 +4468,7 @@ class HADeviceHealth extends HTMLElement {
                 <div class="alert-time">${this._historyDate(new Date(alert.timestamp).getTime())}</div>
               </div>
               <div class="alert-actions">
-                <button class="alert-dismiss" data-alert-id="${_esc(alertId)}">${this._t('dismiss')}</button>
+                ${this._canAccess('actions', 'visible') && this._canAccess('actions', 'read') && this._canAccess('actions', 'execute') ? `<button class="alert-dismiss" data-alert-id="${_esc(alertId)}">${this._t('dismiss')}</button>` : ''}
               </div>
             </div>
           `;
@@ -4308,6 +4509,10 @@ class HADeviceHealth extends HTMLElement {
     this.shadowRoot.innerHTML = `<style>${HA_DEVICE_HEALTH_BENTO_CSS}${createUiV3({language:this._lang}).css}
 /* Recorder history owns one bounded projection; no external renderer. */
 .device-history { margin:20px 0 0; padding:18px; border:1px solid var(--divider-color,#ddd); border-radius:var(--bento-radius-sm,12px); background:var(--card-background-color,#fff); color:var(--primary-text-color,#222); min-width:0; }
+.access-policy { padding:16px; border:1px solid var(--divider-color,#ddd); border-radius:12px; }
+.access-policy-rows { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); gap:12px; }
+.access-policy label { display:grid; gap:4px; } .access-policy button,.access-policy select,.access-policy textarea,.access-manage { min-height:44px; font:inherit; }
+.access-policy textarea { width:100%; box-sizing:border-box; }
 .device-history h3 { margin:0 0 8px; font-size:18px; }
 .device-history p,.history-snapshot-note { color:var(--secondary-text-color,#555); font-size:13px; line-height:1.55; overflow-wrap:anywhere; }
 .history-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin:14px 0; }
@@ -4444,6 +4649,7 @@ ${_FAMILY_RECORD_CSS}
     _bindLocalIntroDismiss(this.shadowRoot);
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
+    this._bindAccessManagement();
     this._attachHistoryEvents();
     _bindFamilyNavigation(this, familyFocus);
     this._drawSignalChart();
@@ -4604,6 +4810,7 @@ ${_FAMILY_RECORD_CSS}
     const dismissButtons = this.shadowRoot.querySelectorAll(".alert-dismiss");
     dismissButtons.forEach((btn) => {
       btn.addEventListener("click", (e) => {
+        if (!this._canAccess('actions', 'visible') || !this._canAccess('actions', 'read') || !this._canAccess('actions', 'execute')) return;
         const alertId = e.target.dataset.alertId;
         this._acknowledgedAlerts.add(alertId);
         this._lastHiddenAlert = alertId;
@@ -4611,7 +4818,10 @@ ${_FAMILY_RECORD_CSS}
       });
     });
 
-    this.shadowRoot.querySelector(".alert-undo")?.addEventListener("click", () => { this._acknowledgedAlerts.delete(this._lastHiddenAlert); this._lastHiddenAlert = null; this._update(); });
+    this.shadowRoot.querySelector(".alert-undo")?.addEventListener("click", () => {
+      if (!this._canAccess('actions', 'visible') || !this._canAccess('actions', 'read') || !this._canAccess('actions', 'execute')) return;
+      this._acknowledgedAlerts.delete(this._lastHiddenAlert); this._lastHiddenAlert = null; this._update();
+    });
 
     const backgroundGenerate = this.shadowRoot.querySelector(".background-alerts-generate");
     if (backgroundGenerate) {
@@ -4865,6 +5075,10 @@ ${_FAMILY_RECORD_CSS}
     _bindFamilyNavigation(this);
     _bindFamilyRecords(this);
     if (this._hass) {
+      if (this._accessMode !== 'legacy' && !this._accessUnsubscribe) {
+        this._invalidateAccess('pending');
+        this._subscribeAccess();
+      }
       this._loadRegistries();
       this._subscribeRegistryUpdates();
       this._update();
@@ -4880,6 +5094,7 @@ ${_FAMILY_RECORD_CSS}
     this._familyRecordWidth = null;
     this._familyNavWidth = null;
     this._cancelDeviceHistory('not_checked',true);
+    if (this._accessMode !== 'legacy') this._invalidateAccess('pending');
     if (this._historyConnection?.removeEventListener) {
       this._historyConnection.removeEventListener('ready',this._historyReadyHandler);
       this._historyConnection.removeEventListener('disconnected',this._historyDisconnectHandler);
