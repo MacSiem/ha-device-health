@@ -25,7 +25,7 @@ test('editor ordinary locale changes labels while retaining authored draft, care
     input.setSelectionRange(2, 7, 'backward');
     const config = JSON.stringify(editor._config);
     editor.hass = { language: 'pl' };
-    assert.deepEqual(Array.from(editor.shadowRoot.querySelectorAll('label'), x => x.textContent), ['Tytuł', 'Ostrzeżenie baterii (%)', 'Krytyczny poziom baterii (%)']);
+    assert.deepEqual(Array.from(editor.shadowRoot.querySelectorAll('label'), x => x.textContent), ['Tytuł', 'Ostrzeżenie baterii (%)', 'Krytyczny poziom baterii (%)', 'Wariant', 'Domyślna zakładka']);
     const retained = editor.shadowRoot.querySelector('#cf_title');
     assert.equal(retained.value, 'Draft <img> {id} $&');
     assert.equal(editor.shadowRoot.activeElement, retained);
@@ -50,9 +50,9 @@ test('unconfigured panel and fresh stub follow HA locale without rewriting expli
     card.hass = { language: 'pl', states: {} };
     assert.equal(card.shadowRoot.querySelector('.card-header').textContent, 'Zdrowie Urządzeń');
     card.setConfig(card.constructor.getStubConfig());
-    assert.equal(card.shadowRoot.querySelector('.card-header').textContent, 'Zdrowie Urządzeń');
+    assert.match(card.shadowRoot.querySelector('.simple-header strong').textContent, /Zdrowie Urządzeń/);
     card.hass = { language: 'en', states: {} };
-    assert.equal(card.shadowRoot.querySelector('.card-header').textContent, 'Device Health');
+    assert.match(card.shadowRoot.querySelector('.simple-header strong').textContent, /Device Health/);
     card.setConfig({ title: 'Device Health' });
     card.hass = { language: 'pl', states: {} };
     assert.equal(card.shadowRoot.querySelector('.card-header').textContent, 'Device Health');
