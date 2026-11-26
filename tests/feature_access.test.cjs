@@ -10,6 +10,10 @@ function capabilities(revision = 0) {
 }
 function setup({integration = true, admin = true} = {}) {
   const dom = new JSDOM('', {runScripts:'dangerously',pretendToBeVisual:true,url:'http://localhost/'});
+  const intervals = new Map();
+  let nextInterval = 0;
+  dom.window.setInterval = (callback, milliseconds) => { assert.equal(milliseconds, 10000); intervals.set(++nextInterval, callback); return nextInterval; };
+  dom.window.clearInterval = id => intervals.delete(id);
   dom.window.eval(readFileSync('ha-device-health.js','utf8'));
   const card = dom.window.document.createElement('ha-device-health');
   card.setConfig({type:'custom:ha-device-health',show_support:false});
@@ -44,6 +48,7 @@ function setup({integration = true, admin = true} = {}) {
     }};
   return {dom,card,hass,calls,setAccess:value=>{access=value;},setSubscribeError:value=>{subscribeError=value;},
     notify:()=>onAccess?.({changed:true}),finishHistory:value=>historyResolve?.(value),
+    tickPolling:()=>[...intervals.values()].forEach(callback=>callback()), intervalCount:()=>intervals.size,
     flush:()=>new Promise(resolve=>dom.window.setTimeout(resolve,20))};
 }
 
@@ -113,5 +118,19 @@ test('new account cannot receive late history from prior account',async()=>{
     q.card.hass={...q.hass,user:{id:'other-user',is_admin:false}};await q.flush();
     q.finishHistory({'sensor.qa_battery':[{s:'25',lu:Date.now()/1000}]});await pending;
     assert.equal(q.card._historyResult,null);assert.equal(q.card.shadowRoot.textContent.includes('QA Device'),false);
+  } finally {q.dom.window.close();}
+});
+
+test('native access revocation without an event is refreshed once per connection and clears cached rows',async()=>{
+  const q=setup();try {
+    q.card.hass=q.hass;await q.flush();
+    const second=q.dom.window.document.createElement('ha-device-health');second.setConfig({type:'custom:ha-device-health',show_support:false});q.dom.window.document.body.append(second);second.hass=q.hass;await q.flush();
+    assert.equal(q.intervalCount(),1);
+    const before=q.calls.filter(call=>call.type==='ha_device_health/access').length;
+    const changed=capabilities();changed.features.diagnostics.read=false;q.setAccess(changed);q.tickPolling();await q.flush();
+    const after=q.calls.filter(call=>call.type==='ha_device_health/access').length;
+    assert.equal(after-before,1);assert.equal(q.card.shadowRoot.textContent.includes('QA Device'),false);assert.equal(second.shadowRoot.textContent.includes('QA Device'),false);
+    assert.equal(q.card.shadowRoot.querySelector('.tabs'),null);assert.equal(second.shadowRoot.querySelector('.tabs'),null);
+    q.card.remove();assert.equal(q.intervalCount(),1);second.remove();assert.equal(q.intervalCount(),0);
   } finally {q.dom.window.close();}
 });

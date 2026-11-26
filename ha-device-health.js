@@ -42,6 +42,9 @@ function createUiV3({ language = 'en' } = {}) {
 // Component-local XSS protection: never reads from or publishes a global helper.
 const _esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
+// Cards on one HA connection share capability reads and a single refresh timer.
+const _accessConnections = new WeakMap();
+
 // Component-local persistence retains this card's existing localStorage keys.
 const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-device-health-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-device-health] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-device-health-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-device-health-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
@@ -1864,12 +1867,14 @@ class HADeviceHealth extends HTMLElement {
       if (!this.isConnected || connection?.connected !== true || typeof connection.subscribeMessage !== 'function') throw new Error('offline');
       const unsubscribe = await connection.subscribeMessage(() => {
         if (!this.isConnected || !this._sameReadSession(session, this._readSession())) return;
+        _accessConnections.get(connection)?.pending.clear();
         this._invalidateAccess('pending', false);
         this._render();
         this._refreshAccess();
       }, {type:'ha_device_health/access/subscribe'});
       if (!this.isConnected || epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) { unsubscribe(); return; }
       this._accessUnsubscribe = unsubscribe;
+      this._startAccessPolling(connection);
       await this._refreshAccess();
     } catch (_) {
       if (epoch === this._accessEpoch && this._sameReadSession(session, this._readSession())) {
@@ -1879,10 +1884,51 @@ class HADeviceHealth extends HTMLElement {
     }
   }
 
+  _startAccessPolling(connection) {
+    let shared = _accessConnections.get(connection);
+    if (!shared) {
+      shared = {cards:new Set(),pending:new Map(),timer:null};
+      shared.timer = setInterval(() => {
+        for (const card of shared.cards) card._refreshAccess();
+      }, 10000);
+      _accessConnections.set(connection, shared);
+    }
+    shared.cards.add(this);
+    this._accessPollingConnection = connection;
+  }
+
+  _stopAccessPolling() {
+    const connection = this._accessPollingConnection;
+    if (!connection) return;
+    const shared = _accessConnections.get(connection);
+    shared?.cards.delete(this);
+    if (shared && !shared.cards.size) {
+      clearInterval(shared.timer);
+      _accessConnections.delete(connection);
+    }
+    this._accessPollingConnection = null;
+  }
+
+  _readAccess(hass, session) {
+    const shared = _accessConnections.get(hass.connection);
+    const key = JSON.stringify([session.userId,session.admin,session.active,session.groups,session.instance]);
+    if (shared?.pending.has(key)) return shared.pending.get(key);
+    let timeout;
+    const deadline = new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('access_timeout')), 5000); });
+    const request = Promise.resolve().then(() => hass.callWS({type:'ha_device_health/access'}));
+    const pending = Promise.race([request, deadline]).finally(() => {
+      clearTimeout(timeout);
+      if (shared?.pending.get(key) === pending) shared.pending.delete(key);
+    });
+    shared?.pending.set(key,pending);
+    return pending;
+  }
+
   _invalidateAccess(mode = 'pending', unsubscribe = true) {
     this._accessEpoch++;
     if (unsubscribe && this._accessUnsubscribe) this._accessUnsubscribe();
     if (unsubscribe) this._accessUnsubscribe = null;
+    if (unsubscribe) this._stopAccessPolling();
     this._accessMode = mode;
     this._access = null;
     this._accessPolicy = null;
@@ -1910,9 +1956,10 @@ class HADeviceHealth extends HTMLElement {
     if (this._accessMode === 'legacy' || this._accessMode === 'absent') return true;
     const hass = this._hass, session = this._readSession(hass), epoch = this._accessEpoch;
     try {
-      const access = await hass.callWS({ type: 'ha_device_health/access' });
+      const access = await this._readAccess(hass, session);
       if (!this.isConnected || epoch !== this._accessEpoch || !this._sameReadSession(session, this._readSession())) return false;
       if (access?.status === 'absent') {
+        this._stopAccessPolling();
         this._access = null;
         this._accessMode = 'absent';
         this._loadRegistries();
@@ -1921,13 +1968,17 @@ class HADeviceHealth extends HTMLElement {
       }
       if (access?.status !== 'active' || !access.features || !Number.isInteger(access.revision)) throw new Error('invalid_access');
       const oldAccess = this._access;
-      if (oldAccess && (oldAccess.revision !== access.revision || JSON.stringify(oldAccess.features) !== JSON.stringify(access.features))) {
+      const changed = !oldAccess || oldAccess.revision !== access.revision || oldAccess.can_manage !== access.can_manage || oldAccess.entry_id !== access.entry_id || JSON.stringify(oldAccess.features) !== JSON.stringify(access.features);
+      if (oldAccess && changed) {
         this._invalidateAccess('pending', false);
       }
       this._access = access;
       this._accessMode = 'ready';
-      if (this._canAccess('diagnostics', 'visible') && this._canAccess('diagnostics', 'read')) this._loadRegistries();
-      this._render();
+      if (!this._accessPollingConnection) this._startAccessPolling(hass.connection);
+      if (changed) {
+        if (this._canAccess('diagnostics', 'visible') && this._canAccess('diagnostics', 'read')) this._loadRegistries();
+        this._render();
+      }
       return true;
     } catch (_) {
       if (epoch === this._accessEpoch && this._sameReadSession(session, this._readSession())) {
