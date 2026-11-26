@@ -843,6 +843,7 @@ class HADeviceHealth extends HTMLElement {
       }
     } catch (_) { /* Invalid saved state keeps the default Devices view. */ }
     this._deviceFilter = "all";
+    this._areaFilter = null;
     this._searchQuery = "";
     this._groupByDomain = false;
     this._sortBy = "name";
@@ -1165,7 +1166,12 @@ class HADeviceHealth extends HTMLElement {
     for (const [key, fallback] of Object.entries(HADeviceHealth.getStubConfig())) {
       if (typeof fallback === 'number') this._config[key] = this._getConfigNumber(key, fallback);
     }
-    if (["devices", "batteries", "network", "alerts"].includes(config.default_tab)) this._activeTab = config.default_tab;
+    if (!['tile','compact','full'].includes(config.variant)) this._config.variant=config.compact===true?'compact':'full';
+    this._areaFilter = typeof config.area_id === 'string' ? config.area_id : '';
+    if (this._historyDevice && !this._inArea(this._deviceArea(this._historyDevice))) { this._historyDevice=''; this._cancelDeviceHistory('not_checked',true); }
+    const availableTabs = this._visibleTabs();
+    if (availableTabs.includes(config.default_tab)) this._activeTab = config.default_tab;
+    else if (!availableTabs.includes(this._activeTab)) this._activeTab = availableTabs[0];
     for (const result of [this._historyResult, this._historyProgress]) {
       if (result) result.episodes = this._historyEpisodes(result.rows);
     }
@@ -1239,7 +1245,7 @@ class HADeviceHealth extends HTMLElement {
     }
     // Locale and administrator controls can change without any sensor change.
     // Rendered scalars also detect an in-place update of HA's user object.
-    if (historyContextChanged || registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true)) {
+    if (historyContextChanged || registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true) || this._renderedAreas !== hass?.areas) {
       this._render();
     }
     // Check if relevant state actually changed
@@ -1684,7 +1690,7 @@ class HADeviceHealth extends HTMLElement {
     const result = this._historyResult, scope = result || this._historyAttempt;
     const code = this._historyState === 'loaded' ? 'success' : this._historyState === 'partial' ? 'partial'
       : this._historyState === 'no_data' ? 'no_data' : ['denied','error','timeout'].includes(this._historyState) ? 'error' : 'not_checked';
-    const devices = [...this._deviceRegistry.values()];
+    const devices = [...this._deviceRegistry.values()].filter(device=>this._inArea(device.area_id || ''));
     const pageCount = Math.max(1,Math.ceil((result?.rows.length || 0)/50));
     this._historyPage = Math.min(this._historyPage,pageCount-1);
     // Both views use identical page/order; group batteries by source/unit, then events.
@@ -1744,6 +1750,7 @@ class HADeviceHealth extends HTMLElement {
         <dt>${this._ht('limits')}</dt><dd>16 ${this._ht('entities')} · 2400 ${this._ht('samples')} · 12000 ${this._ht('inspected')} · 30 × 24 h · 15 s</dd>
         <dt>${this._ht('invalid')}</dt><dd>${result?.invalid||0}</dd><dt>${this._ht('missing')}</dt><dd>${result?.missing.length||0}</dd>
         <dt>${this._ht('entities')}</dt><dd>${scope.entityIds.map(id=>_esc(id)).join('<br>')}</dd></dl></details>`:''}
+      ${this._historyWeekComparison(result).length ? `<section class="history-comparison"><h4>${this._lang==='pl'?'Porównanie obserwacji połączenia':'Connection observation comparison'}</h4><p>${this._lang==='pl'?'Dwa ostatnie pełne tygodnie kalendarzowe (poniedziałek–poniedziałek) w strefie Home Assistant. Liczba zapisanych obserwacji rozłączenia, nie liczba awarii ani czas offline. Pokrycie ciągłe i retencja: nieznane; różnice mogą wynikać z braków danych.':'The last two complete calendar weeks (Monday to Monday) in the Home Assistant time zone. Counts are recorded disconnect observations, not outages or offline duration. Continuous coverage and retention are unknown; differences may reflect missing data.'}</p><ul>${this._historyWeekComparison(result).map(w=>`<li>${_esc(this._historyDate(w.start))} – ${_esc(this._historyDate(w.end))}: <strong>${w.sources ? w.observations : '—'}</strong> · ${this._lang==='pl'?'źródła z wyświetlanymi rekordami':'sources with displayed records'} ${w.sources}/${w.requested}</li>`).join('')}</ul></section>` : ''}
       ${this._renderHistoryEpisodes(result)}
       ${result?.capped?`<p class="history-cap" role="status">${this._ht('cap')}</p>`:''}
       ${result?.rows.length?`<div class="history-controls history-view" role="group" aria-label="${this._ht('chart')} / ${this._ht('data')}"><button type="button" data-history-view="chart" aria-pressed="${this._historyView==='chart'}">${this._ht('chart')}</button><button type="button" data-history-view="data" aria-pressed="${this._historyView==='data'}">${this._ht('data')}</button></div>
@@ -1782,6 +1789,45 @@ class HADeviceHealth extends HTMLElement {
     root.querySelector('.history-record-next')?.addEventListener('click',()=>step(1));
     root.querySelector('.history-prev')?.addEventListener('click',()=>{this._historyPage--;this._render();});
     root.querySelector('.history-next')?.addEventListener('click',()=>{this._historyPage++;this._render();});
+  }
+
+  _visibleTabs() {
+    const all=['devices','batteries','network','alerts'];
+    const visible=Array.isArray(this._config.tabs) ? all.filter(tab=>this._config.tabs.includes(tab)) : all;
+    return visible.length ? visible : all;
+  }
+
+  _areas() {
+    const entries=Object.values(this._hass?.areas || {});
+    return entries.filter(area=>area && typeof area.area_id==='string').sort((a,b)=>String(a.name).localeCompare(String(b.name),this._lang));
+  }
+
+  _deviceArea(id) { return this._deviceRegistry.get(id)?.area_id || ''; }
+  _entityArea(id) { const entry=this._entityRegistry.get(id); return entry?.area_id || this._deviceArea(entry?.device_id); }
+  _inArea(area) { return !this._areaFilter || (this._areaFilter === '__none__' ? !area : this._areaFilter === area); }
+  _areaName(id) { return this._hass?.areas?.[id]?.name || (id || (this._lang==='pl'?'Bez obszaru':'No area')); }
+
+  _historyWeekComparison(result) {
+    if (!result) return [];
+    const zone=this._historyZone();
+    const parts=time=>Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(time).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));
+    const midnight=date=>{
+      const wanted=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate());
+      let guess=wanted;
+      for(let i=0;i<4;i++){const p=parts(guess);const local=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second);const delta=wanted-local;guess+=delta;if(!delta) break;}
+      return guess;
+    };
+    const now=parts(result.end), today=new Date(Date.UTC(now.year,now.month-1,now.day));
+    const weekday=(today.getUTCDay()+6)%7;
+    const monday=new Date(today.getTime()-weekday*86400000);
+    const boundaries=[0,7,14].map(days=>midnight(new Date(monday.getTime()-days*86400000)));
+    if (result.start>boundaries[2]) return [];
+    return [0,1].map(i=>{
+      const end=boundaries[i],start=boundaries[i+1];
+      const samples=result.rows.filter(row=>row.time>=start && row.time<end);
+      return {start,end,observations:samples.filter(row=>row.kind==='connection' && ['off','not_home'].includes(row.state)).length,
+        sources:new Set(samples.map(row=>row.entityId)).size, requested:result.entityIds.length, coverage:'unknown'};
+    });
   }
 
   _getDevices() {
@@ -2520,7 +2566,7 @@ class HADeviceHealth extends HTMLElement {
   }
 
   _renderSimple() {
-    const pl = this._hass?.language?.startsWith('pl'), devices = this._getDevices(), batteries = this._getBatteryDevices();
+    const pl = this._hass?.language?.startsWith('pl'), devices = this._getDevices().filter(d=>this._inArea(this._deviceArea(d.id))), batteries = this._getBatteryDevices().filter(b=>this._inArea(this._entityArea(b.id)));
     const known = this._registryStatus === 'ready' || this._deviceRegistry.size > 0;
     const offline = devices.filter(device => device.status === 'offline');
     const lowByDevice = new Map();
@@ -2530,10 +2576,11 @@ class HADeviceHealth extends HTMLElement {
     }
     const low = [...lowByDevice.values()];
     const uncertain = devices.some(device => ['unknown','unavailable'].includes(device.status));
-    const problems = [...offline.map(d => ({name:d.name, detail:pl ? 'niedostępny' : 'offline'})), ...low.map(b => ({name:b.name, detail:`${pl ? 'bateria' : 'battery'} ${b.level}%`}))];
+    const problems = [...offline.map(d => ({name:d.name, detail:`${pl ? 'offline od' : 'offline since'} ${d.offlineSince ? this._calculateUptime(d.offlineSince) : (pl?'nieznane':'unknown')}`})), ...low.map(b => ({name:b.name, detail:`${pl ? 'bateria' : 'battery'} ${b.level}% · ${pl?'próg':'threshold'} ${this._config.battery_warning}%`}))];
     const status = known ? `${offline.length} offline · ${low.length} ${pl ? 'baterie' : 'batteries'}` : (pl ? 'Dane niedostępne' : 'Data unavailable');
+    this._renderedLang = this._lang; this._renderedIsAdmin = this._hass.user?.is_admin === true; this._renderedAreas=this._hass?.areas; this._lastRenderTime=Date.now();
     this.shadowRoot.innerHTML = `<style>:host{display:block;color:var(--primary-text-color);font-size:14px}.simple{padding:16px;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px)}.simple-header{display:flex;align-items:center;gap:12px}.simple-header strong{flex:1}.simple-open{min-height:44px;padding:8px 14px;background:transparent;color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px}.simple ul{padding-left:20px;margin:8px 0}.simple li{overflow-wrap:anywhere}</style><div class="simple"><div class="simple-header"><strong>${_esc(this._config.title ?? this._t('deviceHealth'))}<br><span>${_esc(status)}</span></strong><button type="button" class="simple-open">${pl?'Pokaż':'Show'}</button></div>${this._config.variant === 'compact' ? `<ul>${problems.slice(0,2).map(p=>`<li>${_esc(p.name)} · ${_esc(p.detail)}</li>`).join('')}</ul>${known && !problems.length ? (uncertain ? (pl?'Niektóre stany są nieznane.':'Some states are unknown.') : devices.length ? (pl?'Wszystkie urządzenia działają.':'All devices are working.') : (pl?'Nie znaleziono urządzeń.':'No devices found.')) : problems.length > 2 ? `+ ${problems.length-2}` : ''}` : ''}</div>`;
-    this.shadowRoot.querySelector('.simple-open').addEventListener('click',()=>{this._simpleExpanded=true;this._render();});
+    this.shadowRoot.querySelector('.simple-open').addEventListener('click',()=>{const target=this._config.tap_target;if(typeof target==='string' && target.startsWith('/') && !target.startsWith('//')){history.pushState(null,'',target);window.dispatchEvent(new Event('location-changed'));return;}this._simpleExpanded=true;this._render();this.shadowRoot.querySelector('.simple-close')?.focus();});
   }
 
   _render() {
@@ -2544,6 +2591,7 @@ class HADeviceHealth extends HTMLElement {
     this._syncHistoryContext();
     this._renderedLang = this._lang;
     this._renderedIsAdmin = this._hass.user?.is_admin === true;
+    this._renderedAreas = this._hass?.areas;
     const oldDialog = this.shadowRoot.querySelector('.automation-dialog');
     const activeElement = this.shadowRoot.activeElement;
     const historyFocus = activeElement?.closest('.device-history') ? {
@@ -3339,15 +3387,16 @@ class HADeviceHealth extends HTMLElement {
       }
     `;
 
-    const devices = this._getDevices().sort((a,b) => {
+    const devices = this._getDevices().filter(d=>this._inArea(this._deviceArea(d.id))).sort((a,b) => {
       const field=this._sortBy.replace(/-desc$/, '');
       const order={offline:0,unavailable:1,unknown:2,online:3};
       const comparison=field==='status' ? order[a.status]-order[b.status] : field==='lastSeen' ? (Date.parse(a.lastSeen)||0)-(Date.parse(b.lastSeen)||0) : a.name.localeCompare(b.name,this._lang);
-      return (comparison || a.name.localeCompare(b.name,this._lang)) * (this._sortBy.endsWith('-desc') ? -1 : 1);
+      const grouped=this._groupByDomain ? this._areaName(this._deviceArea(a.id)).localeCompare(this._areaName(this._deviceArea(b.id)),this._lang) : 0;
+      return grouped || (comparison || a.name.localeCompare(b.name,this._lang)) * (this._sortBy.endsWith('-desc') ? -1 : 1);
     });
     const registryUnknown = this._registryStatus !== 'ready' && !this._deviceRegistry.size;
-    const batteries = this._getBatteryDevices();
-    const networks = this._getNetworkDevices();
+    const batteries = this._getBatteryDevices().filter(b=>this._inArea(this._entityArea(b.id)));
+    const networks = Object.fromEntries(Object.entries(this._getNetworkDevices()).map(([key,rows])=>[key,rows.filter(d=>this._inArea(this._deviceArea(d.id)))]).filter(([,rows])=>rows.length));
     const online = devices.filter((d) => d.status === "online").length;
     const unlinkedEntities = this._unlinkedEntityCount();
     const observed = devices.filter(device => device.status !== 'unknown').length;
@@ -3359,14 +3408,12 @@ class HADeviceHealth extends HTMLElement {
 
     let html = `
       <div class="card">
-        <div class="card-header">${_esc(this._config.title ?? this._t('deviceHealth'))}</div>
+        <div class="card-header">${_esc(this._config.title ?? this._t('deviceHealth'))}${this._simpleExpanded ? `<button type="button" class="simple-close">${this._lang==='pl'?'Wróć':'Back'}</button>` : ''}</div>
         <div class="tabs">
-          <button class="tab-btn ${this._activeTab === "devices" ? "active" : ""}" data-tab="devices">${this._t('devices')}</button>
-          <button class="tab-btn ${this._activeTab === "batteries" ? "active" : ""}" data-tab="batteries">${this._t('batteries')}</button>
-          <button class="tab-btn ${this._activeTab === "network" ? "active" : ""}" data-tab="network">${this._t('network')}</button>
-          <button class="tab-btn ${this._activeTab === "alerts" ? "active" : ""}" data-tab="alerts">${this._t('alerts')}</button>
+          ${this._visibleTabs().map(tab=>`<button class="tab-btn ${this._activeTab===tab?'active':''}" data-tab="${tab}">${this._t(tab)}</button>`).join('')}
         
         </div>
+        <label class="area-control">${this._lang==='pl'?'Obszar':'Area'} <select class="area-filter"><option value="">${this._lang==='pl'?'Wszystkie obszary':'All areas'}</option><option value="__none__" ${this._areaFilter==='__none__'?'selected':''}>${this._lang==='pl'?'Bez obszaru':'No area'}</option>${this._areas().map(area=>`<option value="${_esc(area.area_id)}" ${this._areaFilter===area.area_id?'selected':''}>${_esc(area.name)}</option>`).join('')}</select></label>
     `;
 
     if (this._registryStatus !== 'ready' && (registryUnknown || this._registryStatus === 'error')) {
@@ -3410,7 +3457,7 @@ class HADeviceHealth extends HTMLElement {
               </select>
             </div>
             <div class="control-group">
-              <button class="toggle-grouping ${this._groupByDomain ? 'active' : ''}">${this._t('toggleGrouping')}</button>
+              <button class="toggle-grouping ${this._groupByDomain ? 'active' : ''}" aria-pressed="${this._groupByDomain}">${this._t('toggleGrouping')}</button>
             </div>
             <div class="control-group">
               <span style="font-size:12px;color:var(--ts);white-space:nowrap;">${this._t('show')}:</span>
@@ -3420,8 +3467,9 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats">
-            <span><strong>${registryUnknown ? '—' : devices.length}</strong> ${this._t('totalDevices')}</span> <span><strong>${registryUnknown ? '—' : online}</strong> ${this._t('online')}</span> <span><strong>${availability}</strong> ${this._t('availability')}</span>${unlinkedEntities === null ? '' : `<span><strong>${unlinkedEntities}</strong> ${this._t('unlinkedEntities')}</span>`}
+            <span>${this._t('totalDevices')}: <strong>${registryUnknown ? '—' : devices.length}</strong></span> <span>${this._t('online')}: <strong>${registryUnknown ? '—' : online}</strong></span> <span>${this._t('availability')}: <strong>${availability}</strong></span>${unlinkedEntities === null || this._areaFilter ? '' : `<span>${this._t('unlinkedEntities')}: <strong>${unlinkedEntities}</strong></span>`}
           </div>
+          ${this._groupByDomain ? `<div class="area-breakdown" aria-label="${this._lang==='pl'?'Podział według obszaru':'Area breakdown'}"><p>${this._lang==='pl'?'Według bieżącego przypisania urządzeń.':'Using current device assignments.'}</p>${[...new Set(filteredDevices.map(d=>this._deviceArea(d.id)))].map(area=>{const members=filteredDevices.filter(d=>this._deviceArea(d.id)===area);return `<div><strong>${_esc(this._areaName(area))}</strong>: ${members.length} · ${this._t('offline')}: ${members.filter(d=>d.status==='offline').length} · ${this._t('unknown')}: ${members.filter(d=>d.status==='unknown'||d.status==='unavailable').length}</div>`;}).join('')}</div>` : ''}
           <div class="table-wrapper">
           <table class="device-table" data-device-records>
             <thead>
@@ -3437,8 +3485,8 @@ class HADeviceHealth extends HTMLElement {
               ${paginatedDevices
                 .map(
                   (device) =>
-                    `<tr data-record-key="${_esc(device.id)}" data-record-name="${_esc(device.name)}" data-record-state="${_esc(this._t(device.status).toUpperCase())}">
-                      <td>${_esc(device.name)}</td>
+                    `<tr ${this._groupByDomain ? `data-area-group="${_esc(this._areaName(this._deviceArea(device.id)))}"` : ''} data-record-key="${_esc(device.id)}" data-record-name="${_esc(device.name)}" data-record-state="${_esc(this._t(device.status).toUpperCase())}">
+                      <td>${_esc(device.name)}${this._groupByDomain ? `<small class="device-area">${_esc(this._areaName(this._deviceArea(device.id)))}</small>` : ''}</td>
                       <td>${_esc(this._deviceRegistry.get(device.id)?.model ? device.type : this._t('genericDevice'))}</td>
                       <td><span class="status-badge status-${_esc(device.status)}">${_esc(this._t(device.status).toUpperCase())}</span></td>
                       <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? this._historyDate(Date.parse(device.lastSeen)) : "—"}</td>
@@ -3618,10 +3666,11 @@ class HADeviceHealth extends HTMLElement {
 
     // Alerts Tab
     if (this._activeTab === "alerts") {
+      const visibleAlerts=this._alerts.filter(alert=>this._inArea(this._deviceRegistry.has(alert.id) ? this._deviceArea(alert.id) : this._entityArea(alert.id)));
       const alertStart = (this._alertsPage - 1) * this._alertsPageSize;
       const alertEnd = alertStart + this._alertsPageSize;
-      const paginatedAlerts = this._alerts.slice(alertStart, alertEnd);
-      const alertTotalPages = Math.ceil(this._alerts.length / this._alertsPageSize) || 1;
+      const paginatedAlerts = visibleAlerts.slice(alertStart, alertEnd);
+      const alertTotalPages = Math.ceil(visibleAlerts.length / this._alertsPageSize) || 1;
 
       html += `
         <div class="tab-content active">
@@ -3637,13 +3686,13 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats" aria-live="polite" aria-atomic="true">
-            ${this._t('activeAlerts')}: ${this._registryIdentityUnknown() ? '—' : this._alerts.length}
+            ${this._t('activeAlerts')}: ${this._registryIdentityUnknown() ? '—' : visibleAlerts.length}
           </div>
           ${this._lastHiddenAlert ? `<div role="status">${this._lang === "pl" ? "Alert ukryty" : "Alert hidden"} <button type="button" class="alert-undo">${this._lang === "pl" ? "Cofnij" : "Undo"}</button></div>` : ""}
           ${this._renderBackgroundAlertsSection()}
       `;
 
-      if (this._alerts.length === 0 && !this._registryIdentityUnknown()) {
+      if (visibleAlerts.length === 0 && !this._registryIdentityUnknown()) {
         html += `<div class="empty-state">${this._t('noActiveAlerts')}</div>`;
       } else {
         paginatedAlerts.forEach((alert) => {
@@ -3662,7 +3711,7 @@ class HADeviceHealth extends HTMLElement {
           `;
         });
 
-        if (this._alerts.length > this._alertsPageSize) {
+        if (visibleAlerts.length > this._alertsPageSize) {
           html += `
             <div class="pagination">
               <button class="pagination-btn alert-prev" ${this._alertsPage === 1 ? 'disabled' : ''}>${this._t('previous')}</button>
@@ -3675,7 +3724,7 @@ class HADeviceHealth extends HTMLElement {
 
       html += `
         <div class="section-title">${this._t('alertHistory')}</div><p class="history-snapshot-note">${this._ht('session')}</p>
-        ${this._alertHistory
+        ${this._alertHistory.filter(alert=>this._inArea(this._deviceRegistry.has(alert.id) ? this._deviceArea(alert.id) : this._entityArea(alert.id)))
           .slice(0, 20)
           .map(
             (alert) =>
@@ -3828,7 +3877,8 @@ ${style}
 
 ${_FAMILY_CONTROL_CSS}
 ${_FAMILY_RECORD_CSS}
-</style>${_renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
+.device-area{display:block;color:var(--secondary-text-color);font-size:12px}.area-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.area-breakdown>div{border:1px solid var(--divider-color);border-radius:8px;padding:8px}.area-control{display:flex;align-items:center;gap:8px;margin:12px}.simple-close{margin-inline-start:12px;min-height:44px} :host{color-scheme:light} :host(.bento-dark){color-scheme:dark} @media(max-width:500px){.intro-steps{display:none}} input,select,textarea{accent-color:var(--primary-color);background-color:var(--card-background-color);color:var(--primary-text-color)}
+</style>${this._config.show_help === false ? '' : _renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
     _bindLocalIntroDismiss(this.shadowRoot);
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();
@@ -3942,6 +3992,7 @@ ${_FAMILY_RECORD_CSS}
         }
       }
     });
+    this.shadowRoot.querySelector('.simple-close')?.addEventListener('click',()=>{this._simpleExpanded=false;this._render();});
     const registryRetry = this.shadowRoot.querySelector('.registry-retry');
     if (registryRetry) registryRetry.addEventListener('click', () => this._loadRegistries(true));
     const tabs = this.shadowRoot.querySelectorAll(".tab-btn");
@@ -3954,6 +4005,7 @@ ${_FAMILY_RECORD_CSS}
       });
     });
 
+    this.shadowRoot.querySelector('.area-filter')?.addEventListener('change',e=>{this._areaFilter=e.target.value;this._currentPage=this._batteryPage=this._networkPage=this._alertsPage=1;if(this._historyDevice&&!this._inArea(this._deviceArea(this._historyDevice))){this._historyDevice='';this._cancelDeviceHistory('not_checked',true);}this._render();});
     const searchBox = this.shadowRoot.querySelector(".search-box");
     if (searchBox) {
       searchBox.addEventListener("input", (e) => {
@@ -4103,7 +4155,7 @@ ${_FAMILY_RECORD_CSS}
     const alertNext = this.shadowRoot.querySelector(".alert-next");
     if (alertNext) {
       alertNext.addEventListener("click", () => {
-        const tp = Math.ceil(this._alerts.length / this._alertsPageSize) || 1;
+        const tp = Math.ceil(this._alerts.filter(alert=>this._inArea(this._deviceRegistry.has(alert.id) ? this._deviceArea(alert.id) : this._entityArea(alert.id))).length / this._alertsPageSize) || 1;
         if (this._alertsPage < tp) { this._alertsPage++; this._render(); }
       });
     }
@@ -4122,7 +4174,7 @@ ${_FAMILY_RECORD_CSS}
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
-    const networks = this._getNetworkDevices();
+    const networks = Object.fromEntries(Object.entries(this._getNetworkDevices()).map(([key,rows])=>[key,rows.filter(d=>this._inArea(this._deviceArea(d.id)))]));
     const allDevices = [];
     Object.keys(networks).forEach((protocol) => {
       networks[protocol].forEach((device) => {
@@ -4268,7 +4320,7 @@ class HaDeviceHealthEditor extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     const lang = hass?.language?.startsWith('pl') ? 'pl' : 'en';
-    if (lang !== this._renderedLanguage) this._render();
+    if (lang !== this._renderedLanguage || hass?.areas !== this._renderedAreas) this._render();
   }
   _dispatch() {
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
@@ -4306,8 +4358,18 @@ class HaDeviceHealthEditor extends HTMLElement {
             </div>
       <label for="cf_variant">${lang==='pl'?'Wariant':'Variant'}</label><select id="cf_variant">${['full','compact','tile'].map(v=>`<option value="${v}" ${(this._config.variant || 'full')===v?'selected':''}>${v}</option>`).join('')}</select>
       <label for="cf_default_tab">${lang==='pl'?'Domyślna zakładka':'Default tab'}</label><select id="cf_default_tab">${['devices','batteries','network','alerts'].map(v=>`<option value="${v}" ${(this._config.default_tab || 'devices')===v?'selected':''}>${_esc(labels[v])}</option>`).join('')}</select>
+      <label for="cf_tap_target">${lang==='pl'?'Otwórz pełną diagnostykę':'Open full diagnostics'}</label><select id="cf_tap_target"><option value="inline">${lang==='pl'?'W karcie':'In card'}</option><option value="/ha-device-health">${lang==='pl'?'Panel Device Health':'Device Health panel'}</option></select>
+      <label for="cf_area_id">${lang==='pl'?'Obszar':'Area'}</label><select id="cf_area_id"><option value="">${lang==='pl'?'Wszystkie':'All'}</option><option value="__none__">${lang==='pl'?'Bez obszaru':'No area'}</option>${Object.values(this._hass?.areas || {}).map(a=>`<option value="${_esc(a.area_id)}" ${this._config.area_id===a.area_id?'selected':''}>${_esc(a.name)}</option>`).join('')}</select>
+      <label for="cf_show_help">${lang==='pl'?'Pokaż pomoc':'Show help'}</label><input type="checkbox" id="cf_show_help" ${this._config.show_help===false?'':'checked'}>
+      <label for="cf_show_support">${lang==='pl'?'Pokaż wsparcie':'Show support'}</label><input type="checkbox" id="cf_show_support" ${this._config.show_support===false?'':'checked'}>
+      <fieldset><legend>${lang==='pl'?'Widoczne zakładki':'Visible tabs'}</legend>${['devices','batteries','network','alerts'].map(tab=>`<label for="cf_tab_${tab}">${_esc(labels[tab])}</label><input type="checkbox" id="cf_tab_${tab}" data-tab-option="${tab}" ${!Array.isArray(this._config.tabs)||this._config.tabs.includes(tab)?'checked':''}>`).join('')}</fieldset>
     `;
-        for (const key of ['variant','default_tab']) this.shadowRoot.getElementById(`cf_${key}`).addEventListener('change',e=>{this._config={...this._config,[key]:e.target.value};this._dispatch();});
+        for (const key of ['variant','default_tab','tap_target','area_id']) this.shadowRoot.getElementById(`cf_${key}`).addEventListener('change',e=>{this._config={...this._config,[key]:e.target.value};this._dispatch();});
+        this.shadowRoot.getElementById('cf_area_id').value=this._config.area_id || '';
+        this.shadowRoot.getElementById('cf_tap_target').value=this._config.tap_target === '/ha-device-health' ? '/ha-device-health' : 'inline';
+        for (const key of ['show_help','show_support']) this.shadowRoot.getElementById(`cf_${key}`).addEventListener('change',e=>{this._config={...this._config,[key]:e.target.checked};this._dispatch();});
+        this.shadowRoot.querySelectorAll('[data-tab-option]').forEach(box=>box.addEventListener('change',()=>{const tabs=[...this.shadowRoot.querySelectorAll('[data-tab-option]:checked')].map(x=>x.dataset.tabOption);if(!tabs.length){box.checked=true;return;}this._config={...this._config,tabs};this._dispatch();}));
+        this._renderedAreas=this._hass?.areas;
         this._renderedLanguage = lang;
         const f_title = this.shadowRoot.querySelector('#cf_title');
         if (f_title) f_title.addEventListener('input', (e) => {
