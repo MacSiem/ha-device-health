@@ -66,9 +66,15 @@ async def main():
                         result = await ws.receive_json()
                         if result.get('id') == sequence:
                             return result
-                resources = await command('lovelace/resources/list')
-                assert resources['success'], resources
-                owned_resources = [item for item in resources['result'] if 'ha-device-health.js' in item['url']]
+                # Options saves schedule a reload; wait for the new setup to
+                # complete before inspecting its resource on older HA versions.
+                for _ in range(30):
+                    resources = await command('lovelace/resources/list')
+                    assert resources['success'], resources
+                    owned_resources = [item for item in resources['result'] if 'ha-device-health.js' in item['url']]
+                    if len(owned_resources) == 1 and owned_resources[0]['url'].startswith('/ha_device_health/'):
+                        break
+                    await asyncio.sleep(1)
                 assert len(owned_resources) == 1 and owned_resources[0]['url'].startswith('/ha_device_health/'), resources
                 async with session.get(BASE + owned_resources[0]['url']) as response:
                     assert response.status == 200, response.status
