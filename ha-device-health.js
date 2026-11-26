@@ -543,6 +543,8 @@ function _renderLocalSupport(t) { return ''
   + '<div class="donate-section" data-source="own-card" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-direction:row;justify-content:flex-start;text-align:left;">'
   + '  <a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline;">' + _esc(t('optionalSupport')) + '</a><button type="button" class="support-dismiss" aria-label="' + _esc(t('dismissSupport')) + '" style="margin-left:auto;padding:2px 6px;min-height:0;line-height:1;border:0;background:none;color:var(--secondary-text-color,#64748b);cursor:pointer">×</button>'
   + '</div>'; }
+const _MIGRATION_NOTICE_KEY = 'ha-device-health-migration-notice-v1-dismissed';
+function _migrationNoticeDismissed() { try { return localStorage.getItem(_MIGRATION_NOTICE_KEY) === '1'; } catch (_) { return false; } }
 const _LOCAL_SUPPORT_KEY = 'ha-device-health-support-dismissed';
 function _localSupportDismissed() { try { return localStorage.getItem(_LOCAL_SUPPORT_KEY) === '1'; } catch (_) { return false; } }
 function _bindLocalSupportDismiss(root) { root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(_LOCAL_SUPPORT_KEY, '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); }); }
@@ -982,6 +984,9 @@ class HADeviceHealth extends HTMLElement {
         introStep2: "Use the Batteries and Network tabs to review battery levels and signal readings.",
         introStep3: "Read each device’s model and last state change in the Devices table.",
         dismissIntro: "Dismiss",
+        migrationNotice: "Device Health is planned to move to an integration in a future release. This card continues to work. Migration instructions will be published before the change.",
+        migrationMore: "More information",
+        migrationDismiss: "Dismiss migration notice",
         optionalSupport: "Optional support for HA Tools",
         dismissSupport: "Dismiss support link",
         show: "Show",
@@ -1093,6 +1098,9 @@ class HADeviceHealth extends HTMLElement {
         introStep2: "W zakładkach Baterie i Sieć sprawdzaj poziomy baterii oraz odczyty sygnału.",
         introStep3: "W tabeli Urządzenia odczytuj model i ostatnią zmianę stanu każdego urządzenia.",
         dismissIntro: "Zamknij instrukcję",
+        migrationNotice: "Planowane jest przeniesienie Device Health do integracji w przyszłym wydaniu. Ta karta nadal działa. Instrukcję migracji opublikujemy przed zmianą.",
+        migrationMore: "Więcej informacji",
+        migrationDismiss: "Ukryj informację o migracji",
         optionalSupport: "Dobrowolne wsparcie HA Tools",
         dismissSupport: "Ukryj link wsparcia",
         show: "Pokaż",
@@ -3796,7 +3804,12 @@ ${style}
 
 ${_FAMILY_CONTROL_CSS}
 ${_FAMILY_RECORD_CSS}
-</style>${_renderLocalIntro(key => this._t(key))}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
+</style>${_renderLocalIntro(key => this._t(key))}${this._hass.user?.is_admin === true && !this._migrationNoticeDismissed && !_migrationNoticeDismissed() ? `<div class="migration-notice" role="status" style="padding:12px 16px;margin:8px;border-radius:8px;background:var(--secondary-background-color,#eee);color:var(--primary-text-color,#222)"><span>${_esc(this._t('migrationNotice'))}</span> <a href="https://github.com/MacSiem/ha-device-health#installation" target="_blank" rel="noopener noreferrer">${_esc(this._t('migrationMore'))}</a> <button type="button" class="migration-dismiss" aria-label="${_esc(this._t('migrationDismiss'))}" style="min-width:44px;min-height:44px;border:0;background:transparent;color:inherit;cursor:pointer">×</button></div>` : ''}${html}${this._hass?.user?.is_admin && this._config?.show_support !== false && !_localSupportDismissed() ? _renderLocalSupport(key => this._t(key)) : ''}`
+    this.shadowRoot.querySelector('.migration-dismiss')?.addEventListener('click', () => {
+      this._migrationNoticeDismissed = true;
+      try { localStorage.setItem(_MIGRATION_NOTICE_KEY, '1'); } catch (_) {}
+      this.shadowRoot.querySelector('.migration-notice')?.remove();
+    });
     _bindLocalIntroDismiss(this.shadowRoot);
     _bindLocalSupportDismiss(this.shadowRoot);
     this._attachEventListeners();

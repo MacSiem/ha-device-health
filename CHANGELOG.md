@@ -1,5 +1,12 @@
 # Changelog — Device Health
 
+## Unreleased
+
+- Show administrators a dismissible Polish or English notice about the planned
+  transition to an integration, with a link to installation information. The
+  dismissal is remembered locally in the browser.
+- Keep the existing Dashboard installation and Home Assistant 2024.1 minimum.
+
 ## 4.3.0 (2026-10-13)
 
 - Add explicit 7/30-day recorded history per device from Home Assistant Recorder, with source dates, retention/coverage caveats, missing sources and bounded reads. State history survives card recreation under HA retention rules.

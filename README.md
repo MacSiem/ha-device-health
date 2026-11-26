@@ -81,6 +81,10 @@ remain unknown and do not become a zero signal value.
 
 Requires Home Assistant 2024.1 or later.
 
+**Planned transition:** Device Health is planned to move to an integration in a
+future release. The current Dashboard card remains supported. Migration
+instructions will be published here before the change; no action is needed now.
+
 1. Open HACS and search for **Device Health** under **Dashboard**.
 2. Download the card and reload the browser when HACS prompts you.
 3. Add `custom:ha-device-health` to your dashboard, including a Sections view.
