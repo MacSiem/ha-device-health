@@ -25,7 +25,7 @@ test('editor ordinary locale changes labels while retaining authored draft, care
     input.setSelectionRange(2, 7, 'backward');
     const config = JSON.stringify(editor._config);
     editor.hass = { language: 'pl' };
-    assert.deepEqual(Array.from(editor.shadowRoot.querySelectorAll('label'), x => x.textContent), ['Tytuł', 'Ostrzeżenie baterii (%)', 'Krytyczny poziom baterii (%)', 'Wariant', 'Domyślna zakładka']);
+    assert.deepEqual(Array.from(editor.shadowRoot.querySelectorAll('label'), x => x.textContent), ['Tytuł', 'Ostrzeżenie baterii (%)', 'Krytyczny poziom baterii (%)', 'Wariant', 'Domyślna zakładka', 'Otwórz pełną diagnostykę', 'Obszar', 'Pokaż pomoc', 'Pokaż wsparcie', 'Urządzenia', 'Baterie', 'Sieć', 'Alerty']);
     const retained = editor.shadowRoot.querySelector('#cf_title');
     assert.equal(retained.value, 'Draft <img> {id} $&');
     assert.equal(editor.shadowRoot.activeElement, retained);
