@@ -4,11 +4,9 @@ import math
 def classify(devices, entries, states, threshold=20):
     connections = {device_id: [] for device_id in devices}
     batteries = {}
-    for entity_id, entry in entries.items():
-        state = states.get(entity_id)
-        device_id = entry.device_id
-        if not state:
-            continue
+    for entity_id, state in states.items():
+        entry = entries.get(entity_id)
+        device_id = getattr(entry, 'device_id', None)
         attrs = state.attributes
         value = state.state
         if device_id in connections and value not in ('unknown', 'unavailable'):

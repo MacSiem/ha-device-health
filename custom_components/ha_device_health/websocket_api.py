@@ -94,6 +94,8 @@ async def capabilities(hass, connection, msg):
         async with data['lock']:
             policy = await read_policy(data)
             user = await actor(hass, connection)
+            if hass.data[DOMAIN].get(msg['entry_id']) is not data:
+                raise PermissionError('entry_unloaded')
             caps = effective_feature_capabilities(policy['policy'], user_id=user.id, is_active=user.is_active, is_admin=user.is_admin)
             # A global aggregate requires all-entity access, not just one permitted entity.
             for ops in caps.values():
@@ -111,7 +113,7 @@ async def get_policy(hass, connection, msg):
         data = entry_data(hass, msg['entry_id'])
         async with data['lock']:
             result = await read_policy(data)
-            if not (await actor(hass, connection)).is_admin:
+            if not (await actor(hass, connection)).is_admin or hass.data[DOMAIN].get(msg['entry_id']) is not data:
                 raise PermissionError()
             connection.send_result(msg['id'], result)
     except (PermissionError, ValueError, KeyError):
@@ -125,7 +127,7 @@ async def set_policy(hass, connection, msg):
         data = entry_data(hass, msg['entry_id'])
         async with data['lock']:
             current = await read_policy(data)
-            if not (await actor(hass, connection)).is_admin:
+            if not (await actor(hass, connection)).is_admin or hass.data[DOMAIN].get(msg['entry_id']) is not data:
                 raise PermissionError()
             if current['revision'] != msg['revision']:
                 connection.send_error(msg['id'], 'conflict', 'Policy has changed')

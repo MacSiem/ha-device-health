@@ -34,7 +34,12 @@ async def async_setup_entry(hass, entry):
 async def async_unload_entry(hass, entry):
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-    hass.data[DOMAIN].pop(entry.entry_id, None)
+    data = hass.data[DOMAIN].get(entry.entry_id)
+    if data and 'lock' in data:
+        async with data['lock']:
+            hass.data[DOMAIN].pop(entry.entry_id, None)
+    else:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
     async_dispatcher_send(hass, websocket_api.ACCESS_SIGNAL)
     return True
 
