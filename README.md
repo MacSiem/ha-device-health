@@ -79,9 +79,13 @@ remain unknown and do not become a zero signal value.
 
 ## Installation / Instalacja
 
-Requires Home Assistant 2024.1 or later. This Integration installation applies
-**after** the announced Dashboard transition period and after the Integration
-version becomes available in HACS; until then keep using the Dashboard release.
+The public Dashboard 4.3.1 declares Home Assistant 2024.1 as its minimum. The
+minimum for the future Integration release is **not yet established**: its source
+compatibility and runtime still need verification. This candidate currently sets
+`homeassistant: 2024.7.0` in `hacs.json`; that is a distribution gate, not proof
+of compatibility. Integration installation applies **after** the announced
+Dashboard transition period and availability in HACS; until then keep using the
+Dashboard release.
 
 1. Install **Device Health** from HACS **Integration**, restart Home Assistant,
    then add **Device Health** under Settings → Devices & services.
@@ -97,6 +101,13 @@ submitted. During catalog propagation, the Dashboard entry can still point to
 that Integration release. This package retains the root `ha-device-health.js`
 and the existing Dashboard resource path for compatibility; their presence
 alone does not prove that HACS will install or update both categories correctly.
+The candidate’s shared `hacs.json` minimum of 2024.7 can prevent the new
+release from being offered or downloaded on HA 2024.1–2024.6 even while the
+catalog still calls it Dashboard. The published 4.3.1 tag retains its own 2024.1
+minimum; retaining or selecting that version and its existing resource must be
+verified in HACS, not assumed. This compatibility tradeoff requires owner review
+before release; do not change the published 4.3.1 metadata.
+
 Before release, test the **exact stable release** in an isolated HA/HACS setup:
 update an existing Dashboard installation while the catalog still says Dashboard,
 verify its resource URL, card, configuration and rollback, then test a fresh and
@@ -108,7 +119,14 @@ Wydanie Integration musi być dostępne przed zgłoszeniem zmiany kategorii HACS
 Podczas propagacji katalog może nadal wskazywać Dashboard, ale pobierać najnowsze
 wydanie Integration. Pakiet zachowuje główny `ha-device-health.js` i dotychczasową
 ścieżkę zasobu Dashboard; sama ich obecność nie dowodzi poprawnej instalacji i
-aktualizacji w obu kategoriach. Przed wydaniem sprawdź **dokładne wydanie stabilne**
+aktualizacji w obu kategoriach. Wspólne minimum kandydata 2024.7 w `hacs.json`
+może zablokować oferowanie lub
+pobranie nowej wersji na HA 2024.1–2024.6 jeszcze pod kategorią Dashboard.
+Opublikowany tag 4.3.1 zachowuje własne minimum 2024.1; zachowanie albo wybór tej
+wersji i jej zasobu trzeba sprawdzić w HACS. Ten kompromis wymaga oceny ownera
+przed wydaniem; nie zmieniaj metadanych opublikowanego 4.3.1.
+
+Przed wydaniem sprawdź **dokładne wydanie stabilne**
 w odizolowanym HA/HACS: aktualizację istniejącego Dashboard przy starej kategorii,
 jego URL zasobu, działanie i konfigurację karty oraz powrót; następnie świeżą
 instalację i migrację Integration po zmianie kategorii. W razie błędu zablokuj
@@ -147,9 +165,12 @@ renders before considering rollback complete.
 
 ### Migracja z Dashboard do Integration (PL)
 
-Wymagany jest Home Assistant 2024.1 lub nowszy. Poniższe kroki wykonaj **po**
-ogłoszonym okresie przejściowym i udostępnieniu wersji Integration w HACS;
-do tego czasu korzystaj z wydania Dashboard.
+Publiczne wydanie Dashboard 4.3.1 deklaruje minimum Home Assistant 2024.1.
+Minimum przyszłej integracji **nie jest jeszcze ustalone**: wymaga sprawdzenia
+zgodności kodu i działania. Kandydat ma obecnie `homeassistant: 2024.7.0` w
+`hacs.json`; to ograniczenie dystrybucji, nie dowód zgodności. Poniższe kroki
+wykonaj **po** okresie przejściowym i udostępnieniu Integration w HACS; do tego
+czasu korzystaj z wydania Dashboard.
 
 1. Zrób kopię HA i konfiguracji dashboardów. Zainstaluj **Device Health** jako
    **Integration** w HACS, uruchom ponownie HA i dodaj integrację w Ustawienia →
@@ -213,8 +234,9 @@ an offline device. The card does not backfill, interpolate or alter Recorder.
 Reads are explicit and bounded to 16 visible entity sources, 12,000 input records
 and 2,400 projected rows; partial results and omitted sources remain visible.
 
-History requires History/Recorder. Administrators can read it on supported HA
-versions from 2024.1; household history access requires HA 2026.5.0 or newer and
+History requires History/Recorder. Administrators can read it on HA versions
+supported by the installed release; household history access requires HA 2026.5.0
+or newer and
 follows HA permissions. Changing device, account, instance or connection clears
 incompatible results. A failed read does not retry automatically.
 

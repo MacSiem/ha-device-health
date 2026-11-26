@@ -1,11 +1,8 @@
 name: HACS Validation
 on:
   push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
+  workflow_dispatch:
   schedule:
     - cron: "0 4 * * *"
 
@@ -14,11 +11,16 @@ permissions:
 
 jobs:
   validate:
+    name: HACS ${{ matrix.category }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        category: [plugin, integration]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: HACS Action
         uses: hacs/action@main
         with:
-          category: plugin
+          category: ${{ matrix.category }}
