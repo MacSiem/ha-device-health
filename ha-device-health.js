@@ -820,7 +820,7 @@ class HADeviceHealth extends HTMLElement {
     this._lang = (navigator.language || '').startsWith('pl') ? 'pl' : 'en';
     this.attachShadow({ mode: "open" });
     this._toolId = this.tagName.toLowerCase().replace('ha-', '');
-    this._config = HADeviceHealth.getStubConfig();
+    this._config = { ...HADeviceHealth.getStubConfig(), variant: "full" };
     this._hass = null;
     this._entityRegistry = new Map();
     this._deviceRegistry = new Map();
@@ -1009,7 +1009,7 @@ class HADeviceHealth extends HTMLElement {
         offline: "Offline",
         unavailable: "Unavailable",
         unknown: "No entity state",
-        toggleGrouping: "Toggle Grouping",
+        toggleGrouping: "Group",
         totalDevices: "Total Devices",
         unlinkedEntities: "Entities without a registered device",
         availability: "Availability",
@@ -1019,7 +1019,7 @@ class HADeviceHealth extends HTMLElement {
         lastSeen: "Last state change",
         uptime: "Since change",
         noNetworkEvidence: "No connection evidence in the device registry.",
-        levelWorstFirst: "Level (Worst First)",
+        levelWorstFirst: "Lowest first",
         batteryHealthSummary: "Battery Health Summary",
         deviceNeedAttention: "device(s) need attention",
         lastChanged: "Last changed",
@@ -1028,7 +1028,7 @@ class HADeviceHealth extends HTMLElement {
         activeAlerts: "Active Alerts",
         noActiveAlerts: "No active alerts",
         alertHistory: "Alert History (Last 20)",
-        dismiss: "Dismiss",
+        dismiss: "Hide",
         page: "Page",
         of: "of",
         itemsPerPage: "Items per page",
@@ -1120,7 +1120,7 @@ class HADeviceHealth extends HTMLElement {
         offline: "Offline",
         unavailable: "Niedostępne",
         unknown: "Brak stanu encji",
-        toggleGrouping: "Przełącz Grupowanie",
+        toggleGrouping: "Grupuj",
         totalDevices: "Razem Urządzeń",
         unlinkedEntities: "Encje bez zarejestrowanego urządzenia",
         availability: "Dostępność",
@@ -1130,7 +1130,7 @@ class HADeviceHealth extends HTMLElement {
         lastSeen: "Ostatnia zmiana stanu",
         uptime: "Od zmiany",
         noNetworkEvidence: "Brak danych o połączeniu w rejestrze urządzeń.",
-        levelWorstFirst: "Poziom (Najgorsze Pierwsze)",
+        levelWorstFirst: "Najsłabsze najpierw",
         batteryHealthSummary: "Podsumowanie Zdrowia Baterii",
         deviceNeedAttention: "urządzenie(ń) wymaga uwagi",
         lastChanged: "Ostatnio zmienione",
@@ -1139,7 +1139,7 @@ class HADeviceHealth extends HTMLElement {
         activeAlerts: "Aktywne Alerty",
         noActiveAlerts: "Brak aktywnych alertów",
         alertHistory: "Historia Alertów (Ostatnie 20)",
-        dismiss: "Odrzuć",
+        dismiss: "Ukryj",
         page: "Strona",
         of: "z",
         itemsPerPage: "Elementów na stronie",
@@ -1156,13 +1156,16 @@ class HADeviceHealth extends HTMLElement {
   }
 
   setConfig(config) {
+    this._simpleExpanded = false;
     this._config = {
       ...HADeviceHealth.getStubConfig(),
+      variant: "full",
       ...config,
     };
     for (const [key, fallback] of Object.entries(HADeviceHealth.getStubConfig())) {
-      if (key !== 'type') this._config[key] = this._getConfigNumber(key, fallback);
+      if (typeof fallback === 'number') this._config[key] = this._getConfigNumber(key, fallback);
     }
+    if (["devices", "batteries", "network", "alerts"].includes(config.default_tab)) this._activeTab = config.default_tab;
     for (const result of [this._historyResult, this._historyProgress]) {
       if (result) result.episodes = this._historyEpisodes(result.rows);
     }
@@ -1707,8 +1710,14 @@ class HADeviceHealth extends HTMLElement {
         let min=unit==='%' ? 0 : Math.min(...values), max=unit==='%' ? 100 : Math.max(...values);
         if (min===max) { min=Math.max(0,min-0.5);max+=0.5; }
         const y=value=>max>min && Number.isFinite(max-min) ? 15+70*(1-(value-min)/(max-min)) : 50;
+        const path = group.map((row,i) => {
+          const prev=group[i-1];
+          const gap=prev && rows.some(event=>event.entityId===row.entityId && event.kind!=="battery" && event.time>prev.time && event.time<=row.time);
+          return !prev || gap ? `M${x(row.time)} ${y(row.value)}` : `H${x(row.time)} V${y(row.value)}`;
+        }).join(' ');
+        const threshold=unit==='%' ? `<path class="history-threshold" d="M10 ${y(this._config.battery_warning)}H90" stroke="var(--warning-color,#b45309)" stroke-dasharray="2 2" fill="none" vector-effect="non-scaling-stroke"/>` : '';
         visualization += `<figure class="history-figure"><figcaption>${_esc(group[0].entityId)} · ${_esc(unit)} <small>${this._ht('points')}</small></figcaption>
-          <div class="history-plot"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M10 15H90 M10 50H90 M10 85H90" stroke="var(--divider-color,#aaa)" fill="none" vector-effect="non-scaling-stroke"/></svg>
+          <div class="history-plot"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M10 15H90 M10 50H90 M10 85H90" stroke="var(--divider-color,#aaa)" fill="none" vector-effect="non-scaling-stroke"/>${threshold}<path class="history-step-line" d="${path}" stroke="var(--primary-color,#2563eb)" fill="none" vector-effect="non-scaling-stroke"/></svg>
           <span class="history-axis history-axis-top">${_esc(max.toFixed(2).replace(/\.00$/,''))} ${_esc(unit)}</span><span class="history-axis history-axis-bottom">${_esc(min.toFixed(2).replace(/\.00$/,''))} ${_esc(unit)}</span>
           ${group.map(row=>mark(row,x(row.time),y(row.value))).join('')}</div>
           <div class="history-dates"><span>${_esc(this._historyDate(result.start))}</span><span>${_esc(this._historyDate(result.end))}</span></div></figure>`;
@@ -1738,7 +1747,7 @@ class HADeviceHealth extends HTMLElement {
       ${this._renderHistoryEpisodes(result)}
       ${result?.capped?`<p class="history-cap" role="status">${this._ht('cap')}</p>`:''}
       ${result?.rows.length?`<div class="history-controls history-view" role="group" aria-label="${this._ht('chart')} / ${this._ht('data')}"><button type="button" data-history-view="chart" aria-pressed="${this._historyView==='chart'}">${this._ht('chart')}</button><button type="button" data-history-view="data" aria-pressed="${this._historyView==='data'}">${this._ht('data')}</button></div>
-      <div class="history-inspector" role="status">${selected?`<strong>${this._ht('details')}</strong><p>${_esc(this._historyRowText(selected))}</p><time datetime="${_esc(selected.utc)}">${_esc(selected.utc)}</time>`:this._ht('select')}</div>
+      <div class="history-inspector" role="status">${selected?`<strong>${this._ht('details')}</strong><p>${_esc(this._historyRowText(selected))}</p>`:this._ht('select')}</div>
       <div class="history-controls history-step"><button type="button" class="history-record-prev" ${selectedIndex<=0?'disabled':''}>${this._ht('recordPrevious')}</button><button type="button" class="history-record-next" ${selectedIndex>=rows.length-1?'disabled':''}>${this._ht('recordNext')}</button></div>
       ${visualization}<div class="history-controls history-pages"><button type="button" class="history-prev" ${this._historyPage===0?'disabled':''}>${this._ht('previous')}</button><span>${this._ht('page')} ${this._historyPage+1} / ${pageCount}</span><button type="button" class="history-next" ${this._historyPage===pageCount-1?'disabled':''}>${this._ht('next')}</button></div>`:''}
       </section>`;
@@ -2510,8 +2519,26 @@ class HADeviceHealth extends HTMLElement {
     }
   }
 
+  _renderSimple() {
+    const pl = this._hass?.language?.startsWith('pl'), devices = this._getDevices(), batteries = this._getBatteryDevices();
+    const known = this._registryStatus === 'ready' || this._deviceRegistry.size > 0;
+    const offline = devices.filter(device => device.status === 'offline');
+    const lowByDevice = new Map();
+    for (const battery of batteries.filter(b => b.level <= this._config.battery_warning)) {
+      const id=this._entityRegistry.get(battery.id)?.device_id || battery.id;
+      if (!lowByDevice.has(id) || lowByDevice.get(id).level > battery.level) lowByDevice.set(id,battery);
+    }
+    const low = [...lowByDevice.values()];
+    const uncertain = devices.some(device => ['unknown','unavailable'].includes(device.status));
+    const problems = [...offline.map(d => ({name:d.name, detail:pl ? 'niedostępny' : 'offline'})), ...low.map(b => ({name:b.name, detail:`${pl ? 'bateria' : 'battery'} ${b.level}%`}))];
+    const status = known ? `${offline.length} offline · ${low.length} ${pl ? 'baterie' : 'batteries'}` : (pl ? 'Dane niedostępne' : 'Data unavailable');
+    this.shadowRoot.innerHTML = `<style>:host{display:block;color:var(--primary-text-color);font-size:14px}.simple{padding:16px;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px)}.simple-header{display:flex;align-items:center;gap:12px}.simple-header strong{flex:1}.simple-open{min-height:44px;padding:8px 14px;background:transparent;color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:8px}.simple ul{padding-left:20px;margin:8px 0}.simple li{overflow-wrap:anywhere}</style><div class="simple"><div class="simple-header"><strong>${_esc(this._config.title ?? this._t('deviceHealth'))}<br><span>${_esc(status)}</span></strong><button type="button" class="simple-open">${pl?'Pokaż':'Show'}</button></div>${this._config.variant === 'compact' ? `<ul>${problems.slice(0,2).map(p=>`<li>${_esc(p.name)} · ${_esc(p.detail)}</li>`).join('')}</ul>${known && !problems.length ? (uncertain ? (pl?'Niektóre stany są nieznane.':'Some states are unknown.') : devices.length ? (pl?'Wszystkie urządzenia działają.':'All devices are working.') : (pl?'Nie znaleziono urządzeń.':'No devices found.')) : problems.length > 2 ? `+ ${problems.length-2}` : ''}` : ''}</div>`;
+    this.shadowRoot.querySelector('.simple-open').addEventListener('click',()=>{this._simpleExpanded=true;this._render();});
+  }
+
   _render() {
     if (!this._hass) return;
+    if (["tile", "compact"].includes(this._config.variant) && !this._simpleExpanded) { this._renderSimple(); return; }
     const familyFocus = _rememberFamilyFocus(this);
     const recordFocus = _rememberFamilyRecords(this);
     this._syncHistoryContext();
@@ -2981,11 +3008,12 @@ class HADeviceHealth extends HTMLElement {
       }
 
       .alert-dismiss {
-        padding: 4px 10px;
-        font-size: 12px;
-        background: var(--ec);
-        color: white;
-        border: none;
+        min-height: 44px;
+        padding: 8px 12px;
+        font-size: 14px;
+        background: transparent;
+        color: var(--primary-text-color);
+        border: 1px solid var(--divider-color);
         border-radius: var(--radius-xs);
         cursor: pointer;
         font-family: inherit;
@@ -3311,9 +3339,12 @@ class HADeviceHealth extends HTMLElement {
       }
     `;
 
-    const devices = this._getDevices().sort((a, b) =>
-      a.name.localeCompare(b.name, this._lang) * (this._sortBy === "name-desc" ? -1 : 1)
-    );
+    const devices = this._getDevices().sort((a,b) => {
+      const field=this._sortBy.replace(/-desc$/, '');
+      const order={offline:0,unavailable:1,unknown:2,online:3};
+      const comparison=field==='status' ? order[a.status]-order[b.status] : field==='lastSeen' ? (Date.parse(a.lastSeen)||0)-(Date.parse(b.lastSeen)||0) : a.name.localeCompare(b.name,this._lang);
+      return (comparison || a.name.localeCompare(b.name,this._lang)) * (this._sortBy.endsWith('-desc') ? -1 : 1);
+    });
     const registryUnknown = this._registryStatus !== 'ready' && !this._deviceRegistry.size;
     const batteries = this._getBatteryDevices();
     const networks = this._getNetworkDevices();
@@ -3389,7 +3420,7 @@ class HADeviceHealth extends HTMLElement {
             </div>
           </div>
           <div class="stats">
-            ${this._t('totalDevices')}: ${registryUnknown ? '—' : devices.length} | ${this._t('online')}: ${online} | ${this._t('availability')}: ${availability}${unlinkedEntities === null ? '' : ` | ${this._t('unlinkedEntities')}: ${unlinkedEntities}`}
+            <span><strong>${registryUnknown ? '—' : devices.length}</strong> ${this._t('totalDevices')}</span> <span><strong>${registryUnknown ? '—' : online}</strong> ${this._t('online')}</span> <span><strong>${availability}</strong> ${this._t('availability')}</span>${unlinkedEntities === null ? '' : `<span><strong>${unlinkedEntities}</strong> ${this._t('unlinkedEntities')}</span>`}
           </div>
           <div class="table-wrapper">
           <table class="device-table" data-device-records>
@@ -3397,8 +3428,8 @@ class HADeviceHealth extends HTMLElement {
               <tr>
                 <th data-sort="name" aria-sort="${this._sortBy === 'name-desc' ? 'descending' : 'ascending'}"><button type="button" class="device-sort-name">${this._t('name')}</button></th>
                 <th>${this._t('type')}</th>
-                <th>${this._t('status')}</th>
-                <th>${this._t('lastSeen')}</th>
+                <th data-sort="status"><button type="button">${this._t('status')}</button></th>
+                <th data-sort="lastSeen"><button type="button">${this._t('lastSeen')}</button></th>
                 <th>${this._t('uptime')}</th>
               </tr>
             </thead>
@@ -3410,7 +3441,7 @@ class HADeviceHealth extends HTMLElement {
                       <td>${_esc(device.name)}</td>
                       <td>${_esc(this._deviceRegistry.get(device.id)?.model ? device.type : this._t('genericDevice'))}</td>
                       <td><span class="status-badge status-${_esc(device.status)}">${_esc(this._t(device.status).toUpperCase())}</span></td>
-                      <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? new Date(device.lastSeen).toLocaleString(this._lang) : "—"}</td>
+                      <td>${device.lastSeen && Number.isFinite(Date.parse(device.lastSeen)) ? this._historyDate(Date.parse(device.lastSeen)) : "—"}</td>
                       <td>${_esc(device.uptime)}</td>
                     </tr>`
                 )
@@ -3608,6 +3639,7 @@ class HADeviceHealth extends HTMLElement {
           <div class="stats" aria-live="polite" aria-atomic="true">
             ${this._t('activeAlerts')}: ${this._registryIdentityUnknown() ? '—' : this._alerts.length}
           </div>
+          ${this._lastHiddenAlert ? `<div role="status">${this._lang === "pl" ? "Alert ukryty" : "Alert hidden"} <button type="button" class="alert-undo">${this._lang === "pl" ? "Cofnij" : "Undo"}</button></div>` : ""}
           ${this._renderBackgroundAlertsSection()}
       `;
 
@@ -3621,7 +3653,7 @@ class HADeviceHealth extends HTMLElement {
               <div class="alert-text">
                 <div class="alert-type">${_esc(this._alertTypeLabel(alert.type).toUpperCase())}</div>
                 <div>${_esc(alert.name)}</div>
-                <div class="alert-time">${new Date(alert.timestamp).toLocaleString(this._lang)}</div>
+                <div class="alert-time">${this._historyDate(new Date(alert.timestamp).getTime())}</div>
               </div>
               <div class="alert-actions">
                 <button class="alert-dismiss" data-alert-id="${_esc(alertId)}">${this._t('dismiss')}</button>
@@ -3649,7 +3681,7 @@ class HADeviceHealth extends HTMLElement {
             (alert) =>
               `<div style="padding: 8px 12px; border-left: 3px solid; border-color: ${alert.severity === "critical" ? "var(--ec)" : alert.severity === "warning" ? "var(--wc)" : "var(--pc)"}; margin-bottom: 4px; border-radius: var(--radius-xs); background: var(--bg);">
                 <div style="font-size: 12px; font-weight: 500; color: var(--tc);">${_esc(this._alertTypeLabel(alert.type))} — ${_esc(alert.name)}</div>
-                <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${new Date(alert.timestamp).toLocaleString(this._lang)}</div>
+                <div style="font-size: 11px; color: var(--ts); margin-top: 2px;">${this._historyDate(new Date(alert.timestamp).getTime())}</div>
               </div>`
           )
           .join("")}
@@ -3693,7 +3725,7 @@ class HADeviceHealth extends HTMLElement {
 .history-figure small { display:block; font-weight:400; color:var(--secondary-text-color,#555); margin-top:5px; }
 .history-plot { position:relative; height:220px; margin:12px 22px 8px; }
 .history-plot svg { width:100%; height:100%; }
-.history-axis { position:absolute; left:0; font-size:11px; pointer-events:none; color:var(--secondary-text-color,#555); }
+.history-axis { position:absolute; left:0; font-size:12px; pointer-events:none; color:var(--secondary-text-color,#555); }
 .history-axis-top { top:0; }.history-axis-bottom { bottom:0; }
 .history-mark { position:absolute; transform:translate(-50%,-50%); width:44px; height:44px; min-width:44px; min-height:44px; padding:0; border:1px solid transparent; border-radius:50%; background:transparent; color:var(--primary-color,#4f46e5); font-size:18px; }
 .history-mark:focus-visible,.history-mark[aria-pressed="true"] { z-index:2; }
@@ -3959,9 +3991,12 @@ ${_FAMILY_RECORD_CSS}
       btn.addEventListener("click", (e) => {
         const alertId = e.target.dataset.alertId;
         this._acknowledgedAlerts.add(alertId);
+        this._lastHiddenAlert = alertId;
         this._update();
       });
     });
+
+    this.shadowRoot.querySelector(".alert-undo")?.addEventListener("click", () => { this._acknowledgedAlerts.delete(this._lastHiddenAlert); this._lastHiddenAlert = null; this._update(); });
 
     const backgroundGenerate = this.shadowRoot.querySelector(".background-alerts-generate");
     if (backgroundGenerate) {
@@ -4156,12 +4191,13 @@ ${_FAMILY_RECORD_CSS}
     return element;
   }
 
-  getCardSize() { return 6; }
-  getGridOptions() { return { columns: 12, min_rows: 3, min_columns: 6 }; }
+  getCardSize() { return this._config.variant === "tile" ? 1 : this._config.variant === "compact" ? 3 : 6; }
+  getGridOptions() { return this._config.variant === "tile" ? { columns: 6, min_rows: 1, min_columns: 3 } : { columns: 12, min_rows: this._config.variant === "compact" ? 2 : 3, min_columns: 6 }; }
 
   static getStubConfig() {
     return {
       type: "custom:ha-device-health",
+      variant: "compact",
       battery_warning: 30,
       battery_critical: 10,
       offline_alert_minutes: 60,
@@ -4268,7 +4304,10 @@ class HaDeviceHealthEditor extends HTMLElement {
               <input type="text" id="cf_battery_critical" value="${_esc(this._config?.battery_critical ?? '10')}"
                 style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
             </div>
+      <label for="cf_variant">${lang==='pl'?'Wariant':'Variant'}</label><select id="cf_variant">${['full','compact','tile'].map(v=>`<option value="${v}" ${(this._config.variant || 'full')===v?'selected':''}>${v}</option>`).join('')}</select>
+      <label for="cf_default_tab">${lang==='pl'?'Domyślna zakładka':'Default tab'}</label><select id="cf_default_tab">${['devices','batteries','network','alerts'].map(v=>`<option value="${v}" ${(this._config.default_tab || 'devices')===v?'selected':''}>${_esc(labels[v])}</option>`).join('')}</select>
     `;
+        for (const key of ['variant','default_tab']) this.shadowRoot.getElementById(`cf_${key}`).addEventListener('change',e=>{this._config={...this._config,[key]:e.target.value};this._dispatch();});
         this._renderedLanguage = lang;
         const f_title = this.shadowRoot.querySelector('#cf_title');
         if (f_title) f_title.addEventListener('input', (e) => {

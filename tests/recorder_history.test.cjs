@@ -140,7 +140,7 @@ test('Chart and Data render equal projection IDs, selection detail, PL/EN and 44
   card.shadowRoot.querySelector('[data-history-view="data"]').click();
   const dataIds=[...card.shadowRoot.querySelectorAll('[data-history-row]')].map(n=>n.dataset.historyRow);
   assert.deepEqual(dataIds,chartIds);card.shadowRoot.querySelector('[data-history-row]').click();
-  assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/2026-10-05/);
+  assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/05\/10\/2026/);
   card._lang='pl';card._render();assert.match(card.shadowRoot.querySelector('.device-history').textContent,/Historia|historia|historii/);
   assert.match(card.shadowRoot.querySelector('style').textContent,/\.history-controls[\s\S]*min-height:\s*44px/);
  }finally{dom.window.close();}
