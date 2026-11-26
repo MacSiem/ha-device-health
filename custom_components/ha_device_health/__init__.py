@@ -1,13 +1,16 @@
 """Device Health lifecycle."""
+import logging
+
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from .const import DOMAIN, SIGNAL
-from . import websocket_api
+from . import frontend, websocket_api
 
 PLATFORMS = ["sensor", "binary_sensor"]
+_LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass, config):
     hass.data.setdefault(DOMAIN, {})
@@ -15,6 +18,8 @@ async def async_setup(hass, config):
     return True
 
 async def async_setup_entry(hass, entry):
+    await frontend.async_register_static(hass)
+    await frontend.async_register_card(hass)
     store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.access", private=True, atomic_writes=True)
     hass.data[DOMAIN][entry.entry_id] = {"store": store}
     @callback
@@ -34,6 +39,10 @@ async def async_setup_entry(hass, entry):
 async def async_unload_entry(hass, entry):
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
+    try:
+        await frontend.async_unregister_card(hass)
+    except Exception:
+        _LOGGER.warning("Device Health resource cleanup deferred until the next setup", exc_info=True)
     data = hass.data[DOMAIN].get(entry.entry_id)
     if data and 'lock' in data:
         async with data['lock']:
