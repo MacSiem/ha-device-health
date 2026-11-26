@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,8 @@ BASE = 'http://127.0.0.1:8123'
 CLIENT = BASE + '/'
 
 async def main():
+    shutil.copytree('/source/integration', '/config/custom_components/ha_device_health')
+    shutil.copytree('/source/fixture', '/config/custom_components/device_health_fixture')
     Path('/config/configuration.yaml').write_text('default_config:\nlogger:\n  default: warning\n')
     process = subprocess.Popen([sys.executable, '-m', 'homeassistant', '--config', '/config'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
