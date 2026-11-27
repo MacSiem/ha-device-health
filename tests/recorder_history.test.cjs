@@ -7,8 +7,18 @@ const { JSDOM } = require('jsdom');
 const start = Date.parse('2026-10-05T00:00:00Z'), end = start + 7 * 86400000;
 const sample = (s, offset = 1, a = { device_class: 'battery', unit_of_measurement: '%' }) => ({ s, a, lu: start / 1000 + offset });
 const fixture = { 'sensor.qa_battery': [sample('0'), sample('unavailable', 2), sample('25', 3)], 'binary_sensor.qa_link': [sample('off', 4, {device_class:'connectivity'})] };
-function setup({ role = true, version = '2026.10.1', call } = {}) {
+function setup({ role = true, version = '2026.10.1', call, browserZone } = {}) {
  const dom = new JSDOM('', { runScripts:'dangerously', pretendToBeVisual:true, url:'http://localhost/' });
+ if (browserZone) {
+  // Scope the emulated browser zone to this JSDOM window, preserving explicit zones.
+  const Native = dom.window.Intl.DateTimeFormat;
+  function ZonedDateTimeFormat(locales, options) {
+   return new Native(locales, options?.timeZone ? options : { ...options, timeZone: browserZone });
+  }
+  Object.setPrototypeOf(ZonedDateTimeFormat, Native);
+  ZonedDateTimeFormat.prototype = Native.prototype;
+  dom.window.Intl.DateTimeFormat = ZonedDateTimeFormat;
+ }
  dom.window.Date.now = () => end; // Stable Recorder query window, including reopen equivalence.
  dom.window.eval(readFileSync(join(__dirname,'..','ha-device-health.js'),'utf8'));
  const card = dom.window.document.createElement('ha-device-health'); card.setConfig({show_support:false});
@@ -312,7 +322,7 @@ test('chart caption distinguishes recorded points from horizontal steps and unkn
 });
 
 test('profile formats repeated DST times and rerenders chart/data without history reads',()=>{
- const {dom,card,hass,calls}=setup();try{
+ const {dom,card,hass,calls}=setup({browserZone:'America/New_York'});try{
   const a=Date.parse('2026-11-01T05:30:00Z'),b=Date.parse('2026-11-01T06:30:00Z');
   hass.language='pl';hass.locale={language:'pl',time_zone:'local',time_format:'12',date_format:'language'};card.hass=hass;
   const p=card._historyProject({'sensor.qa_battery':[{s:'50',a:{device_class:'battery',unit_of_measurement:'%'},lu:a/1000},{s:'49',a:{device_class:'battery',unit_of_measurement:'%'},lu:b/1000}]},{start:a-1,end:b+1,entityIds:['sensor.qa_battery']});
@@ -328,7 +338,7 @@ test('profile formats repeated DST times and rerenders chart/data without histor
 });
 
 test('profile date language and automation last trigger use the selected zone',()=>{
- const {dom,card,hass}=setup();try{
+ const {dom,card,hass}=setup({browserZone:'America/New_York'});try{
   const time='2026-11-01T05:30:00Z';hass.language='pl';hass.locale={language:'pl',time_zone:'local',time_format:'12',date_format:'system'};
   hass.states['automation.ha_device_health_battery_alert']={state:'on',attributes:{last_triggered:time}};card.hass=hass;
   assert.match(card._getBackgroundAutomationStatus('automation.ha_device_health_battery_alert'),/01:30:00.*GMT-4/);
@@ -340,7 +350,7 @@ test('profile date language and automation last trigger use the selected zone',(
 });
 
 test('device last change and battery date follow profile without changing instants',()=>{
- const {dom,card,hass,calls}=setup();try{
+ const {dom,card,hass,calls}=setup({browserZone:'America/New_York'});try{
   const time='2026-11-01T05:30:00Z';hass.locale={language:'pl',time_zone:'local',time_format:'12',date_format:'language'};hass.language='pl';card.hass=hass;
   card._getDevices=()=>[{id:'qa-one',name:'Synthetic',type:'test',status:'online',lastSeen:time,uptime:'—'}];
   card._getBatteryDevices=()=>[{id:'sensor.qa_battery',name:'Battery QA',level:50,lastChanged:time}];
