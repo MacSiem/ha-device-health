@@ -2185,7 +2185,7 @@ class HADeviceHealth extends HTMLElement {
       page: ['Page', 'Strona'], previous: ['Previous', 'Poprzednia'], next: ['Next', 'Następna'],
       session: ['Existing alert history below contains observations from this browser session.', 'Dotychczasowa historia alertów poniżej zawiera obserwacje z tej sesji przeglądarki.'],
       inspected: ['Inspected records', 'Sprawdzone rekordy'], subset: ['Visible member entities queried', 'Odpytywane widoczne encje urządzenia'],
-      points: ['Recorded samples; no interpolation', 'Zapisane próbki; bez interpolacji'],
+      points: ['Recorded samples. Horizontal steps show the previous recorded value between marks; continuous coverage is unknown.', 'Zapisane próbki. Poziome schodki pokazują poprzednią zapisaną wartość między punktami; ciągłość pokrycia jest nieznana.'],
       episodes: ['Recorded episodes', 'Zapisane epizody'],
       entity_availability: ['Entity unknown / unavailable', 'Encja unknown / unavailable'],
       measured_connection: ['Measured connection off', 'Zmierzony brak połączenia'],

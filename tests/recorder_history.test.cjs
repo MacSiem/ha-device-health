@@ -296,3 +296,17 @@ test('current-area Recorder read is explicitly scoped and discloses assignment u
   assert.equal(card.shadowRoot.querySelector('.history-device').value,'@area');
  }finally{dom.window.close();}
 });
+
+test('chart caption distinguishes recorded points from horizontal steps and unknown coverage in both languages',()=>{
+ for(const [lang, expected] of [
+  ['en',/Horizontal steps show the previous recorded value between marks; continuous coverage is unknown\./],
+  ['pl',/Poziome schodki pokazują poprzednią zapisaną wartość między punktami; ciągłość pokrycia jest nieznana\./],
+ ]){
+  const {dom,card,hass}=setup();try{
+   hass.language=lang;card.hass=hass;
+   card._historyResult=card._historyProject(fixture,context);card._historyState='loaded';card._render();
+   const caption=card.shadowRoot.querySelector('.history-figure figcaption');
+   assert.ok(caption);assert.match(caption.textContent,expected);
+  }finally{dom.window.close();}
+ }
+});
