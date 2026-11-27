@@ -1771,6 +1771,9 @@ class HADeviceHealth extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
+    const displayProfile = JSON.stringify([hass?.language, hass?.locale?.language, hass?.locale?.time_zone, hass?.locale?.time_format, hass?.locale?.date_format, hass?.config?.time_zone]);
+    const displayProfileChanged = this._displayProfile !== displayProfile;
+    this._displayProfile = displayProfile;
     const registrySession = this._readSession(hass);
     const registrySessionChanged = this._registrySession && !this._sameReadSession(this._registrySession, registrySession);
     const backgroundIdentityChanged = this._backgroundAutomationUserId !== hass?.user?.id;
@@ -1819,7 +1822,7 @@ class HADeviceHealth extends HTMLElement {
     }
     // Locale and administrator controls can change without any sensor change.
     // Rendered scalars also detect an in-place update of HA's user object.
-    if (historyContextChanged || registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true) || this._renderedAreas !== hass?.areas) {
+    if (displayProfileChanged || historyContextChanged || registrySessionChanged || backgroundIdentityChanged || this._renderedLang !== this._lang || this._renderedIsAdmin !== (hass?.user?.is_admin === true) || this._renderedAreas !== hass?.areas) {
       this._render();
     }
     // Check if relevant state actually changed
@@ -2470,9 +2473,22 @@ class HADeviceHealth extends HTMLElement {
     try { new Intl.DateTimeFormat('en',{timeZone:zone}); return zone; } catch (_) { return 'UTC'; }
   }
 
-  _historyDate(time) {
-    return new Intl.DateTimeFormat(this._lang === 'pl' ? 'pl-PL' : 'en-GB',
-      {timeZone:this._historyZone(),year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(time);
+  _displayZone() {
+    return this._hass?.locale?.time_zone === 'server' ? this._historyZone() : (new Intl.DateTimeFormat().resolvedOptions().timeZone || this._historyZone());
+  }
+
+  _historyDate(time, dateOnly = false) {
+    const locale = this._hass?.locale || {};
+    const system = new Intl.DateTimeFormat().resolvedOptions();
+    const language = locale.language || this._hass?.language || system.locale || 'en';
+    const dateLanguage = locale.date_format === 'system' ? system.locale : language;
+    const clockLanguage = locale.time_format === 'system' ? system.locale : language;
+    const zone = this._displayZone();
+    const date = new Intl.DateTimeFormat(dateLanguage, {timeZone:zone, year:'numeric', month:'2-digit', day:'2-digit'}).format(time);
+    if (dateOnly) return date;
+    const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23' : undefined;
+    const clock = new Intl.DateTimeFormat(clockLanguage, {timeZone:zone, hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle, timeZoneName:'shortOffset'}).format(time);
+    return `${date}, ${clock}`;
   }
 
   _historyRowText(row) {
@@ -2539,7 +2555,7 @@ class HADeviceHealth extends HTMLElement {
         <dt>${this._ht('source')}</dt><dd>history/history_during_period · include_start_time_state=false</dd>
         <dt>${this._ht('range')}</dt><dd>${_esc(new Date(scope.start).toISOString())} → ${_esc(new Date(scope.end).toISOString())}</dd>
         <dt>${this._ht('queriedUntil')}</dt><dd>${_esc(result?.completedUntil ? new Date(result.completedUntil).toISOString() : '—')}</dd><dt>${this._ht('queries')}</dt><dd>${result?.queries||0}</dd>
-        <dt>${this._ht('zone')}</dt><dd>${_esc(this._historyZone())}</dd>
+        <dt>${this._ht('zone')}</dt><dd>${_esc(this._displayZone())}</dd>
         <dt>${this._ht('first')}</dt><dd>${_esc(result?.first||'—')}</dd><dt>${this._ht('last')}</dt><dd>${_esc(result?.last||'—')}</dd>
         <dt>${this._ht('samples')}</dt><dd>${result?.rows.length||0}</dd><dt>${this._ht('inspected')}</dt><dd>${result?.inspected||0}</dd>
         <dt>${this._ht('subset')}</dt><dd>${scope.entityIds.length} / ${scope.visible ?? scope.entityIds.length}</dd><dt>${this._ht('enabled')}</dt><dd>${scope.all ?? scope.entityIds.length}</dd><dt>${this._ht('omitted')}</dt><dd>${result?.omitted ?? (scope.all ?? scope.entityIds.length)-scope.entityIds.length}</dd>
@@ -3189,7 +3205,7 @@ class HADeviceHealth extends HTMLElement {
     if (!state) return this._t('notCreated');
     const lastTriggered = state.attributes?.last_triggered;
     const triggeredDate = lastTriggered && Number.isFinite(Date.parse(lastTriggered))
-      ? new Date(lastTriggered).toLocaleString(this._lang) : lastTriggered ? '—' : this._t('never');
+      ? this._historyDate(Date.parse(lastTriggered)) : lastTriggered ? '—' : this._t('never');
     const triggeredText = `, ${this._t('lastTriggered')}: ${triggeredDate}`;
     const statusKey = state.state === 'on' ? 'automationActive' : state.state === 'off'
       ? 'automationDisabled' : state.state === 'unavailable' ? 'unavailable' : 'automationUnknown';
@@ -4384,7 +4400,7 @@ class HADeviceHealth extends HTMLElement {
                       <div class="battery-icon">🔋</div>
                       <div class="battery-info">
                         <div class="battery-name">${_esc(battery.name)}</div>
-                        <div class="battery-label">${this._t('lastChanged')}: ${new Date(battery.lastChanged).toLocaleDateString(this._lang)}</div>
+                        <div class="battery-label">${this._t('lastChanged')}: ${Number.isFinite(Date.parse(battery.lastChanged)) ? _esc(this._historyDate(Date.parse(battery.lastChanged), true)) : '—'}</div>
                       </div>
                       <div class="battery-right">
                         <div class="battery-bar">

@@ -140,7 +140,7 @@ test('Chart and Data render equal projection IDs, selection detail, PL/EN and 44
   card.shadowRoot.querySelector('[data-history-view="data"]').click();
   const dataIds=[...card.shadowRoot.querySelectorAll('[data-history-row]')].map(n=>n.dataset.historyRow);
   assert.deepEqual(dataIds,chartIds);card.shadowRoot.querySelector('[data-history-row]').click();
-  assert.match(card.shadowRoot.querySelector('.history-inspector').textContent,/05\/10\/2026/);
+  assert.ok(card.shadowRoot.querySelector('.history-inspector').textContent.includes(card._historyDate(start+1000)));
   card._lang='pl';card._render();assert.match(card.shadowRoot.querySelector('.device-history').textContent,/Historia|historia|historii/);
   assert.match(card.shadowRoot.querySelector('style').textContent,/\.history-controls[\s\S]*min-height:\s*44px/);
  }finally{dom.window.close();}
@@ -309,4 +309,44 @@ test('chart caption distinguishes recorded points from horizontal steps and unkn
    assert.ok(caption);assert.match(caption.textContent,expected);
   }finally{dom.window.close();}
  }
+});
+
+test('profile formats repeated DST times and rerenders chart/data without history reads',()=>{
+ const {dom,card,hass,calls}=setup();try{
+  const a=Date.parse('2026-11-01T05:30:00Z'),b=Date.parse('2026-11-01T06:30:00Z');
+  hass.language='pl';hass.locale={language:'pl',time_zone:'local',time_format:'12',date_format:'language'};card.hass=hass;
+  const p=card._historyProject({'sensor.qa_battery':[{s:'50',a:{device_class:'battery',unit_of_measurement:'%'},lu:a/1000},{s:'49',a:{device_class:'battery',unit_of_measurement:'%'},lu:b/1000}]},{start:a-1,end:b+1,entityIds:['sensor.qa_battery']});
+  card._historyResult=p;card._historyState='loaded';card._render();
+  assert.match(card._historyDate(a),/01:30:00.*GMT-4/);assert.match(card._historyDate(b),/01:30:00.*GMT-5/);
+  card.shadowRoot.querySelector('[data-history-view="data"]').click();
+  const data=card.shadowRoot.querySelector('.history-data').textContent;assert.match(data,/GMT-4/);assert.match(data,/GMT-5/);
+  assert.ok(card.shadowRoot.innerHTML.includes('2026-11-01T05:30:00.000Z'));
+  card.shadowRoot.querySelector('[data-history-view="chart"]').click();assert.match(card.shadowRoot.querySelector('.history-dates').textContent,/GMT-4/);
+  hass.locale={...hass.locale,time_zone:'server',time_format:'24'};card.hass=hass;
+  assert.match(card.shadowRoot.querySelector('.history-dates').textContent,/06:29/);assert.equal(card._historyZone(),'Europe/Warsaw');assert.equal(calls.length,0);
+ }finally{dom.window.close();}
+});
+
+test('profile date language and automation last trigger use the selected zone',()=>{
+ const {dom,card,hass}=setup();try{
+  const time='2026-11-01T05:30:00Z';hass.language='pl';hass.locale={language:'pl',time_zone:'local',time_format:'12',date_format:'system'};
+  hass.states['automation.ha_device_health_battery_alert']={state:'on',attributes:{last_triggered:time}};card.hass=hass;
+  assert.match(card._getBackgroundAutomationStatus('automation.ha_device_health_battery_alert'),/01:30:00.*GMT-4/);
+  const expected=new Intl.DateTimeFormat(Intl.DateTimeFormat().resolvedOptions().locale,{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(Date.parse(time));
+  assert.equal(card._historyDate(Date.parse(time),true),expected);assert.equal(card._displayZone(),'America/New_York');
+  hass.locale={...hass.locale,time_zone:'server',time_format:'24'};card.hass=hass;
+  assert.match(card._getBackgroundAutomationStatus('automation.ha_device_health_battery_alert'),/06:30:00/);assert.equal(card._displayZone(),'Europe/Warsaw');
+ }finally{dom.window.close();}
+});
+
+test('device last change and battery date follow profile without changing instants',()=>{
+ const {dom,card,hass,calls}=setup();try{
+  const time='2026-11-01T05:30:00Z';hass.locale={language:'pl',time_zone:'local',time_format:'12',date_format:'language'};hass.language='pl';card.hass=hass;
+  card._getDevices=()=>[{id:'qa-one',name:'Synthetic',type:'test',status:'online',lastSeen:time,uptime:'—'}];
+  card._getBatteryDevices=()=>[{id:'sensor.qa_battery',name:'Battery QA',level:50,lastChanged:time}];
+  card._activeTab='devices';card._render();assert.match(card.shadowRoot.textContent,/01:30:00.*GMT-4/);
+  card._activeTab='batteries';card._render();assert.ok(card.shadowRoot.querySelector('.battery-label').textContent.includes(card._historyDate(Date.parse(time),true)));
+  hass.locale={...hass.locale,time_zone:'server',time_format:'24'};card.hass=hass;
+  card._activeTab='devices';card._render();assert.match(card.shadowRoot.textContent,/06:30:00/);assert.equal(calls.length,0);
+ }finally{dom.window.close();}
 });
